@@ -61,6 +61,8 @@ HELP_TEXT = """
 /time 08:00 - ضبط وقت الإرسال اليومي بنظام 24 ساعة
 /page 1 - ضبط صفحة البداية الحالية
 /send_now - إرسال ورد اليوم الآن
+/azkar - إرسال دعاء/ذكر الآن
+/dua - إرسال دعاء/ذكر الآن
 /pause - إيقاف الإرسال مؤقتًا
 /resume - استئناف الإرسال
 
@@ -125,10 +127,12 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 )
             else:
                 media = [
-                    types.InputMediaPhoto(media=types.FSInputFile(image_file))
-                    for image_file in image_files
+                    types.InputMediaPhoto(
+                        media=types.FSInputFile(image_file),
+                        caption=caption if index == 0 else None,
+                    )
+                    for index, image_file in enumerate(image_files)
                 ]
-                media[0].caption = caption
                 await bot.send_media_group(user_id, media)
 
         if is_finish:
@@ -278,6 +282,12 @@ async def set_page(message: types.Message):
 
     db.update_settings(message.from_user.id, page=page)
     await message.answer(f"تم ضبط صفحة البداية الحالية على {page} ✅")
+
+
+@dp.message(Command("azkar", "dua"))
+async def send_azkar(message: types.Message):
+    await ensure_user(message)
+    await message.answer(f"🤲 ذكر ودعاء\n\n{choice(DUAS)}")
 
 
 @dp.message(Command("pause"))
