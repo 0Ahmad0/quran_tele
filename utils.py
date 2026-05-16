@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 from pathlib import Path
@@ -5,7 +7,6 @@ from typing import Iterable
 
 import aiohttp
 import img2pdf
-
 
 TOTAL_PAGES = 604
 IMAGE_URL_TEMPLATE = "https://www.searchquran.org/quran/images/604/{page}.png"
@@ -55,10 +56,14 @@ def get_pages_logic(current_page: int, daily_goal: int) -> tuple[list[int], bool
     if remaining <= daily_goal * 1.5:
         return list(range(current_page, TOTAL_PAGES + 1)), True
 
-    return list(range(current_page, min(current_page + daily_goal, TOTAL_PAGES + 1))), False
+    return list(
+        range(current_page, min(current_page + daily_goal, TOTAL_PAGES + 1))
+    ), False
 
 
-async def download_page(session: aiohttp.ClientSession, page: int, user_id: int) -> Path:
+async def download_page(
+    session: aiohttp.ClientSession, page: int, user_id: int
+) -> Path:
     TMP_DIR.mkdir(exist_ok=True)
     path = TMP_DIR / f"quran_{user_id}_{page}.png"
     url = IMAGE_URL_TEMPLATE.format(page=page)
@@ -81,7 +86,9 @@ async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
             for page in pages:
                 image_paths.append(await download_page(session, page, user_id))
 
-        pdf_bytes = await asyncio.to_thread(img2pdf.convert, [str(path) for path in image_paths])
+        pdf_bytes = await asyncio.to_thread(
+            img2pdf.convert, [str(path) for path in image_paths]
+        )
         pdf_path.write_bytes(pdf_bytes)
         return pdf_path
     finally:

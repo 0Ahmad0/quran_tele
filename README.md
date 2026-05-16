@@ -207,6 +207,13 @@ Temporary files are stored in `tmp/` and cleaned up after sending.
 
 ## ☁️ Deployment Notes
 
+For a full step-by-step deployment guide, read [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+This repository also includes:
+
+- `render.yaml` for Render Background Worker configuration
+- `runtime.txt` to request Python 3.11 on supported hosting platforms
+
 You can deploy this bot on platforms such as:
 
 - Render

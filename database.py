@@ -1,7 +1,7 @@
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 
 class DBManager:
@@ -81,11 +81,15 @@ class DBManager:
 
         params.append(user_id)
         with self.connect() as conn:
-            conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params)
+            conn.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params
+            )
 
     def get_user(self, user_id: int):
         with self.connect() as conn:
-            return conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            return conn.execute(
+                "SELECT * FROM users WHERE user_id = ?", (user_id,)
+            ).fetchone()
 
     def get_all_active_users(self) -> list[sqlite3.Row]:
         with self.connect() as conn:
@@ -105,5 +109,7 @@ class DBManager:
 
     def count_active_users(self) -> int:
         with self.connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS total FROM users WHERE is_active = 1").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS total FROM users WHERE is_active = 1"
+            ).fetchone()
             return int(row["total"])

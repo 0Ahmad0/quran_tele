@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -12,8 +14,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
 from database import DBManager
-from utils import DUAS, IMAGE_URL_TEMPLATE, cleanup_file, generate_quran_pdf, get_pages_logic
-
+from utils import (
+    DUAS,
+    IMAGE_URL_TEMPLATE,
+    cleanup_file,
+    generate_quran_pdf,
+    get_pages_logic,
+)
 
 load_dotenv()
 
@@ -22,9 +29,13 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 CHECK_TIMEZONE = os.getenv("TIMEZONE", "Africa/Cairo")
 
 if not BOT_TOKEN:
-    raise RuntimeError("Missing BOT_TOKEN. Add it to your .env file or hosting environment variables.")
+    raise RuntimeError(
+        "Missing BOT_TOKEN. Add it to your .env file or hosting environment variables."
+    )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
@@ -90,7 +101,10 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 caption=f"{caption}\nتم إرساله كملف PDF لسهولة التصفح.",
             )
         else:
-            media = [types.InputMediaPhoto(media=IMAGE_URL_TEMPLATE.format(page=page)) for page in pages]
+            media = [
+                types.InputMediaPhoto(media=IMAGE_URL_TEMPLATE.format(page=page))
+                for page in pages
+            ]
             media[0].caption = caption
             await bot.send_media_group(user_id, media)
 
@@ -132,7 +146,9 @@ async def check_due_daily_quran() -> None:
 
     logger.info("Sending daily Quran to %s users for time %s", len(users), send_time)
     for user in users:
-        sent = await send_daily_quran(user["user_id"], user["daily_goal"], user["current_page"])
+        sent = await send_daily_quran(
+            user["user_id"], user["daily_goal"], user["current_page"]
+        )
         if sent:
             db.update_settings(user["user_id"], last_sent_date=today)
         await asyncio.sleep(0.1)
@@ -262,7 +278,9 @@ async def send_now(message: types.Message):
         return
 
     await message.answer("جاري تجهيز وردك الآن... ⏳")
-    sent = await send_daily_quran(user["user_id"], user["daily_goal"], user["current_page"])
+    sent = await send_daily_quran(
+        user["user_id"], user["daily_goal"], user["current_page"]
+    )
     if not sent:
         await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
 
