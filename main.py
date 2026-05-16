@@ -63,6 +63,10 @@ BTN_RESUME = "▶️ استئناف"
 BTN_LANGUAGE = "🌐 تغيير اللغة"
 BTN_READ_KHATMA = "✅ قرأت الختمة"
 BTN_NOT_READ_KHATMA = "❌ لم أقرأ الختمة"
+BTN_ADMIN_STATS = "📊 إحصائيات"
+BTN_ADMIN_BROADCAST = "📢 تعميم"
+BTN_ADMIN_SET_KHATMA = "🔢 ضبط رقم الختمة"
+BTN_ADMIN_SEND_DUA = "🤲 إرسال دعاء للجميع"
 
 BUTTON_ALIASES = {
     BTN_SEND_NOW: "send_now",
@@ -85,6 +89,14 @@ BUTTON_ALIASES = {
     "🌐 Change language": "language",
     BTN_READ_KHATMA: "read_khatma",
     BTN_NOT_READ_KHATMA: "not_read_khatma",
+    BTN_ADMIN_STATS: "admin_stats",
+    "📊 Statistics": "admin_stats",
+    BTN_ADMIN_BROADCAST: "admin_broadcast",
+    "📢 Broadcast": "admin_broadcast",
+    BTN_ADMIN_SET_KHATMA: "admin_set_khatma",
+    "🔢 Set Khatma Count": "admin_set_khatma",
+    BTN_ADMIN_SEND_DUA: "admin_send_dua",
+    "🤲 Send Dua to All": "admin_send_dua",
 }
 
 PENDING_ACTIONS: dict[int, str] = {}
@@ -104,6 +116,10 @@ TEXTS = {
         "language_updated": "تم تغيير اللغة إلى العربية ✅",
         "read_khatma": BTN_READ_KHATMA,
         "not_read_khatma": BTN_NOT_READ_KHATMA,
+        "admin_stats": BTN_ADMIN_STATS,
+        "admin_broadcast": BTN_ADMIN_BROADCAST,
+        "admin_set_khatma": BTN_ADMIN_SET_KHATMA,
+        "admin_send_dua": BTN_ADMIN_SEND_DUA,
     },
     "en": {
         "send_now": "📖 Send wird now",
@@ -119,6 +135,10 @@ TEXTS = {
         "language_updated": "Language changed to English ✅",
         "read_khatma": "✅ I read the Khatma",
         "not_read_khatma": "❌ I didn't read the Khatma",
+        "admin_stats": "📊 Statistics",
+        "admin_broadcast": "📢 Broadcast",
+        "admin_set_khatma": "🔢 Set Khatma Count",
+        "admin_send_dua": "🤲 Send Dua to All",
     },
 }
 
@@ -127,27 +147,54 @@ def get_text(language: str, key: str) -> str:
     return TEXTS.get(language, TEXTS["ar"]).get(key, TEXTS["ar"].get(key, key))
 
 
-def main_keyboard(language: str = "ar") -> types.ReplyKeyboardMarkup:
-    return types.ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                types.KeyboardButton(text=get_text(language, "send_now")),
-                types.KeyboardButton(text=get_text(language, "azkar")),
-            ],
-            [
-                types.KeyboardButton(text=get_text(language, "status")),
-                types.KeyboardButton(text=get_text(language, "set_time")),
-            ],
-            [
-                types.KeyboardButton(text=get_text(language, "set_goal")),
-                types.KeyboardButton(text=get_text(language, "set_page")),
-            ],
-            [
-                types.KeyboardButton(text=get_text(language, "pause")),
-                types.KeyboardButton(text=get_text(language, "resume")),
-            ],
-            [types.KeyboardButton(text=get_text(language, "language"))],
+ALL_BUTTON_TEXTS = [
+    BTN_SEND_NOW, "📖 Send wird now",
+    BTN_AZKAR, "🤲 Dua now",
+    BTN_STATUS, "📌 My settings",
+    BTN_SET_TIME, "⏰ Set send time",
+    BTN_SET_GOAL, "🔢 Set daily pages",
+    BTN_SET_PAGE, "📍 Set current page",
+    BTN_PAUSE, "⏸ Pause",
+    BTN_RESUME, "▶️ Resume",
+    BTN_LANGUAGE, "🌐 Change language",
+    BTN_ADMIN_STATS, "📊 Statistics",
+    BTN_ADMIN_BROADCAST, "📢 Broadcast",
+    BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count",
+    BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All",
+]
+
+
+def main_keyboard(language: str = "ar", is_admin_user: bool = False) -> types.ReplyKeyboardMarkup:
+    rows = [
+        [
+            types.KeyboardButton(text=get_text(language, "send_now")),
+            types.KeyboardButton(text=get_text(language, "azkar")),
         ],
+        [
+            types.KeyboardButton(text=get_text(language, "status")),
+            types.KeyboardButton(text=get_text(language, "set_time")),
+        ],
+        [
+            types.KeyboardButton(text=get_text(language, "set_goal")),
+            types.KeyboardButton(text=get_text(language, "set_page")),
+        ],
+        [
+            types.KeyboardButton(text=get_text(language, "pause")),
+            types.KeyboardButton(text=get_text(language, "resume")),
+        ],
+        [types.KeyboardButton(text=get_text(language, "language"))],
+    ]
+    if is_admin_user:
+        rows.append([
+            types.KeyboardButton(text=get_text(language, "admin_stats")),
+            types.KeyboardButton(text=get_text(language, "admin_broadcast")),
+        ])
+        rows.append([
+            types.KeyboardButton(text=get_text(language, "admin_set_khatma")),
+            types.KeyboardButton(text=get_text(language, "admin_send_dua")),
+        ])
+    return types.ReplyKeyboardMarkup(
+        keyboard=rows,
         resize_keyboard=True,
         input_field_placeholder="اختر من الأزرار أو اكتب أمرًا...",
     )
@@ -281,7 +328,7 @@ def check_and_mark_setup(user_id: int) -> None:
                     f"📖 الورد: {user['daily_goal']} صفحة يوميًا\n"
                     f"⏰ وقت الإرسال: {user['send_time']}\n"
                     f"📍 الصفحة الحالية: {user['current_page']}",
-                    reply_markup=main_keyboard(language),
+                    reply_markup=main_keyboard(language, user_id == ADMIN_ID),
                 )
             )
 
@@ -455,36 +502,40 @@ async def send_dua_to_all() -> None:
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await ensure_user(message)
-    language = get_subscription_language(get_subscription_id(message))
+    subscription_id = get_subscription_id(message)
+    language = get_subscription_language(subscription_id)
+    admin = subscription_id == ADMIN_ID
     await message.answer(
         START_MESSAGE,
-        reply_markup=main_keyboard(language),
+        reply_markup=main_keyboard(language, admin),
         parse_mode="HTML",
     )
     await message.answer(
         "🔢 لكي نبدأ، يرجى ضبط عدد صفحات الورد اليومي.\n\n"
         "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
-        reply_markup=main_keyboard(language),
+        reply_markup=main_keyboard(language, admin),
     )
     await message.answer(
         "⏰ الآن ضبط وقت الإرسال اليومي.\n\n"
         "استخدم زر ⏰ ضبط وقت الإرسال أو اكتب /time متبوعًا بالوقت (مثال: /time 08:00)",
-        reply_markup=main_keyboard(language),
+        reply_markup=main_keyboard(language, admin),
     )
 
 
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
     await ensure_user(message)
-    language = get_subscription_language(get_subscription_id(message))
+    subscription_id = get_subscription_id(message)
+    language = get_subscription_language(subscription_id)
+    admin = subscription_id == ADMIN_ID
     if not is_admin(message):
         await message.answer(
             "استخدم الأزرار في الأسفل للتحكم بإعداداتك.\n\n"
             "لأي استفسار تواصل مع المطور.",
-            reply_markup=main_keyboard(language),
+            reply_markup=main_keyboard(language, admin),
         )
         return
-    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language))
+    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language, admin))
 
 
 @dp.message(Command("status"))
@@ -499,6 +550,7 @@ async def status(message: types.Message):
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
     setup_text = "مكتمل ✅" if user.get("is_setup", False) else "غير مكتمل ❌"
     khatma_num = user.get("khatma_number", 0)
+    admin = subscription_id == ADMIN_ID
     await message.answer(
         "📌 إعداداتك الحالية:\n\n"
         f"الحالة: {active_text}\n"
@@ -507,7 +559,7 @@ async def status(message: types.Message):
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
         f"وقت الإرسال: {user['send_time']}",
-        reply_markup=main_keyboard(user["language"]),
+        reply_markup=main_keyboard(user["language"], admin),
     )
 
 
@@ -680,7 +732,7 @@ async def change_language(callback: types.CallbackQuery):
     db.update_settings(subscription_id, language=language)
     await callback.answer()
     await callback.message.answer(
-        get_text(language, "language_updated"), reply_markup=main_keyboard(language)
+        get_text(language, "language_updated"), reply_markup=main_keyboard(language, subscription_id == ADMIN_ID)
     )
 
 
@@ -718,48 +770,96 @@ async def handle_pending_input(message: types.Message):
     await ensure_user(message)
     subscription_id = get_subscription_id(message)
     action = PENDING_ACTIONS.pop(subscription_id)
-    text = normalize_digits(message.text.strip())
+    text = message.text.strip()
 
     if action == "time":
-        if not TIME_PATTERN.match(text):
+        normalized = normalize_digits(text)
+        if not TIME_PATTERN.match(normalized):
             PENDING_ACTIONS[subscription_id] = "time"
             await message.answer(
                 "صيغة الوقت غير صحيحة. أرسل الوقت هكذا: 08:00 أو 21:30"
             )
             return
-        db.update_settings(subscription_id, send_time=text)
+        db.update_settings(subscription_id, send_time=normalized)
         db.clear_last_sent_date(subscription_id)
         await message.answer(
-            f"تم ضبط وقت الإرسال اليومي على {text} ✅\n"
+            f"تم ضبط وقت الإرسال اليومي على {normalized} ✅\n"
             "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
-            reply_markup=main_keyboard(),
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
         )
         check_and_mark_setup(subscription_id)
         return
 
     if action == "goal":
-        goal = parse_positive_int(text, 1, 604)
+        goal = parse_positive_int(normalize_digits(text), 1, 604)
         if goal is None:
             PENDING_ACTIONS[subscription_id] = "goal"
             await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
             return
         db.update_settings(subscription_id, goal=goal)
         await message.answer(
-            f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard()
+            f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID)
         )
         check_and_mark_setup(subscription_id)
         return
 
     if action == "page":
-        page = parse_positive_int(text, 1, 604)
+        page = parse_positive_int(normalize_digits(text), 1, 604)
         if page is None:
             PENDING_ACTIONS[subscription_id] = "page"
             await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
             return
         db.update_settings(subscription_id, page=page)
         await message.answer(
-            f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard()
+            f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID)
         )
+        return
+
+    if action == "broadcast":
+        if not text:
+            PENDING_ACTIONS[subscription_id] = "broadcast"
+            await message.answer("الرجاء إرسال نص التعميم:")
+            return
+        users = db.get_all_active_users()
+        sent_count = 0
+        for user in users:
+            try:
+                await bot.send_message(user["user_id"], text)
+                sent_count += 1
+            except TelegramForbiddenError:
+                db.update_settings(user["user_id"], is_active=False)
+            except Exception:
+                logger.exception("Broadcast failed for user %s", user["user_id"])
+            await asyncio.sleep(0.1)
+        await message.answer(
+            f"✅ تم إرسال التعميم إلى {sent_count} مستخدم.",
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
+        )
+        return
+
+    if action == "set_khatma":
+        parts = text.split()
+        if len(parts) != 2:
+            PENDING_ACTIONS[subscription_id] = "set_khatma"
+            await message.answer("الصيغة غير صحيحة. أرسل: رقم_المستخدم رقم_الختمة\nمثال: 123456 20")
+            return
+        try:
+            user_id = int(parts[0])
+            khatma_number = int(parts[1])
+        except ValueError:
+            PENDING_ACTIONS[subscription_id] = "set_khatma"
+            await message.answer("يجب أن يكونا أرقامًا صحيحة. مثال: 123456 20")
+            return
+        user = db.get_user(user_id)
+        if not user:
+            await message.answer("المستخدم غير موجود.")
+            return
+        db.update_settings(user_id, khatma_number=khatma_number)
+        await message.answer(
+            f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}",
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
+        )
+        return
 
 
 @dp.message(Command("admin_stats"), F.from_user.id == ADMIN_ID)
@@ -818,19 +918,6 @@ async def set_khatma_count(message: types.Message):
     await message.answer(f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}")
 
 
-ALL_BUTTON_TEXTS = [
-    BTN_SEND_NOW, "📖 Send wird now",
-    BTN_AZKAR, "🤲 Dua now",
-    BTN_STATUS, "📌 My settings",
-    BTN_SET_TIME, "⏰ Set send time",
-    BTN_SET_GOAL, "🔢 Set daily pages",
-    BTN_SET_PAGE, "📍 Set current page",
-    BTN_PAUSE, "⏸ Pause",
-    BTN_RESUME, "▶️ Resume",
-    BTN_LANGUAGE, "🌐 Change language",
-]
-
-
 @dp.message(F.text, F.chat.type == "private")
 async def fallback(message: types.Message):
     await ensure_user(message)
@@ -840,19 +927,51 @@ async def fallback(message: types.Message):
         return
     if message.text.strip() in ALL_BUTTON_TEXTS:
         return
+    admin = subscription_id == ADMIN_ID
     user = db.get_user(subscription_id)
     if user and user["daily_goal"] == 1 and user["send_time"] == "08:00" and user["current_page"] == 1:
         await message.answer(
             "يرجى ضبط إعداداتك أولاً لاستخدام البوت.\n\n"
             "استخدم زر 🔢 ضبط عدد الصفحات لضبط عدد الصفحات اليومية.\n"
             "استخدم زر ⏰ ضبط وقت الإرسال لضبط وقت الإرسال.",
-            reply_markup=main_keyboard(user["language"]),
+            reply_markup=main_keyboard(user["language"], admin),
         )
         return
     await message.answer(
         "لم أفهم الأمر. استخدم الأزرار في الأسفل أو /help لعرض الأوامر المتاحة.",
-        reply_markup=main_keyboard(get_subscription_language(subscription_id)),
+        reply_markup=main_keyboard(get_subscription_language(subscription_id), admin),
     )
+
+
+@dp.message(F.text.in_([BTN_ADMIN_STATS, "📊 Statistics"]))
+async def admin_stats_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_BROADCAST, "📢 Broadcast"]))
+async def admin_broadcast_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = "broadcast"
+    await message.answer("📢 أرسل نص التعميم الذي تريد إرساله لجميع المشتركين:")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count"]))
+async def admin_set_khatma_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = "set_khatma"
+    await message.answer("🔢 أرسل رقم المستخدم ورقم الختمة مفصولين بمسافة.\nمثال: 123456 20")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All"]))
+async def admin_send_dua_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await send_dua_to_all()
+    await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
 
 
 async def main() -> None:
