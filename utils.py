@@ -2,17 +2,67 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
 import aiohttp
 import img2pdf
+from hijridate import Gregorian
 
 TOTAL_PAGES = 604
 IMAGE_URL_TEMPLATE = (
     "https://raw.githubusercontent.com/maknon/Quran/main/pages-hafs/{page}.png"
 )
 TMP_DIR = Path("tmp")
+
+JUZ_START_PAGES = [
+    1,
+    22,
+    42,
+    62,
+    82,
+    102,
+    121,
+    142,
+    162,
+    182,
+    201,
+    222,
+    242,
+    262,
+    282,
+    302,
+    322,
+    342,
+    362,
+    382,
+    402,
+    422,
+    442,
+    462,
+    482,
+    502,
+    522,
+    542,
+    562,
+    582,
+]
+
+HIJRI_MONTHS_AR = [
+    "محرم",
+    "صفر",
+    "ربيع الأول",
+    "ربيع الآخر",
+    "جمادى الأولى",
+    "جمادى الآخرة",
+    "رجب",
+    "شعبان",
+    "رمضان",
+    "شوال",
+    "ذو القعدة",
+    "ذو الحجة",
+]
 
 DUAS = [
     "اللهم اجعل القرآن ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.",
@@ -48,6 +98,46 @@ def clamp_page(page: int) -> int:
 
 def clamp_goal(goal: int) -> int:
     return max(1, min(604, goal))
+
+
+def get_juz_number(page: int) -> int:
+    page = clamp_page(page)
+    juz = 1
+    for index, start_page in enumerate(JUZ_START_PAGES, start=1):
+        if page >= start_page:
+            juz = index
+        else:
+            break
+    return juz
+
+
+def format_gregorian_date(now: datetime) -> str:
+    return f"{now.day}/{now.month}/{now.year}"
+
+
+def format_hijri_date(now: datetime) -> str:
+    hijri = Gregorian(now.year, now.month, now.day).to_hijri()
+    month_name = HIJRI_MONTHS_AR[hijri.month - 1]
+    return f"{hijri.day} {month_name} {hijri.year}"
+
+
+def build_wird_caption(
+    start_page: int,
+    end_page: int,
+    total_completed_khatmas: int,
+    active_readers: int,
+    now: datetime,
+) -> str:
+    juz = get_juz_number(start_page)
+    return (
+        "السلام عليكم ورحمة الله وبركاته\n\n"
+        f"📿 الختمات المقروءة: {total_completed_khatmas}\n"
+        f"📖 ورد القرآن ليوم: {format_gregorian_date(now)}\n"
+        f"🗓 {format_hijri_date(now)}\n"
+        f"👥 عدد قرّاء الختمة: {active_readers}\n\n"
+        f"📚 الجزء {juz}\n"
+        f"📄 الصفحات: من {start_page} إلى {end_page}"
+    )
 
 
 def get_pages_logic(current_page: int, daily_goal: int) -> tuple[list[int], bool]:

@@ -30,10 +30,21 @@ class DBManager:
                     current_page INTEGER NOT NULL DEFAULT 1,
                     send_time TEXT NOT NULL DEFAULT '08:00',
                     is_active INTEGER NOT NULL DEFAULT 1,
-                    last_sent_date TEXT
+                    last_sent_date TEXT,
+                    completed_khatmas INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            self._ensure_column(
+                conn, "users", "completed_khatmas", "INTEGER NOT NULL DEFAULT 0"
+            )
+
+    def _ensure_column(
+        self, conn: sqlite3.Connection, table: str, column: str, definition: str
+    ) -> None:
+        columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def add_user(self, user_id: int, username: Optional[str]) -> None:
         with self.connect() as conn:
@@ -118,9 +129,27 @@ class DBManager:
                 "UPDATE users SET last_sent_date = NULL WHERE user_id = ?", (user_id,)
             )
 
+    def increment_completed_khatmas(self, user_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET completed_khatmas = completed_khatmas + 1
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            )
+
     def count_active_users(self) -> int:
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) AS total FROM users WHERE is_active = 1"
+            ).fetchone()
+            return int(row["total"])
+
+    def count_total_completed_khatmas(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(completed_khatmas), 0) AS total FROM users"
             ).fetchone()
             return int(row["total"])

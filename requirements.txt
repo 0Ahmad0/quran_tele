@@ -3,3 +3,4 @@ apscheduler>=3.10
 img2pdf>=0.5
 aiohttp>=3.9
 python-dotenv>=1.0
+hijridate>=2.5

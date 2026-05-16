@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from database import DBManager
 from utils import (
     DUAS,
+    build_wird_caption,
     cleanup_file,
     generate_quran_images,
     generate_quran_pdf,
@@ -130,10 +131,27 @@ def parse_positive_int(value: str, minimum: int, maximum: int) -> int | None:
     return None
 
 
+def get_subscription_id(message: types.Message) -> int:
+    return message.chat.id
+
+
+def get_subscription_name(message: types.Message) -> str | None:
+    if message.chat.type == "private" and message.from_user:
+        return message.from_user.username
+    return message.chat.title or message.chat.username
+
+
 async def ensure_user(message: types.Message) -> None:
-    user = message.from_user
-    if user:
-        db.add_user(user.id, user.username)
+    db.add_user(get_subscription_id(message), get_subscription_name(message))
+
+
+async def get_readers_count(chat_id: int) -> int:
+    if chat_id < 0:
+        try:
+            return await bot.get_chat_member_count(chat_id)
+        except Exception:
+            logger.exception("Failed to get chat member count for chat %s", chat_id)
+    return db.count_active_users()
 
 
 async def health_check(request: web.Request) -> web.Response:
@@ -159,7 +177,15 @@ async def start_health_server() -> web.AppRunner | None:
 
 async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     pages, is_finish = get_pages_logic(current_page, goal)
-    caption = f"📖 وردكم اليومي: الصفحات من {pages[0]} إلى {pages[-1]}"
+    active_readers = await get_readers_count(user_id)
+    total_completed_khatmas = db.count_total_completed_khatmas()
+    caption = build_wird_caption(
+        start_page=pages[0],
+        end_page=pages[-1],
+        total_completed_khatmas=total_completed_khatmas,
+        active_readers=active_readers,
+        now=datetime.now(scheduler.timezone),
+    )
     pdf_file = None
     image_files = []
 
@@ -206,6 +232,7 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
                 "سنبدأ ختمة جديدة في الورد القادم بإذن الله.",
             )
+            db.increment_completed_khatmas(user_id)
             db.update_settings(user_id, page=1)
         else:
             db.update_settings(user_id, page=pages[-1] + 1)
@@ -298,7 +325,8 @@ async def help_command(message: types.Message):
 @dp.message(Command("status"))
 async def status(message: types.Message):
     await ensure_user(message)
-    user = db.get_user(message.from_user.id)
+    subscription_id = get_subscription_id(message)
+    user = db.get_user(subscription_id)
     if not user:
         await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
         return
@@ -327,7 +355,7 @@ async def set_goal(message: types.Message):
         await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
         return
 
-    db.update_settings(message.from_user.id, goal=goal)
+    db.update_settings(get_subscription_id(message), goal=goal)
     await message.answer(f"تم ضبط الورد اليومي على {goal} صفحة ✅")
 
 
@@ -339,8 +367,9 @@ async def set_time(message: types.Message):
     if not TIME_PATTERN.match(send_time):
         await message.answer("اكتب الوقت بصيغة 24 ساعة هكذا: /time 08:00")
         return
-    db.update_settings(message.from_user.id, send_time=send_time)
-    db.clear_last_sent_date(message.from_user.id)
+    subscription_id = get_subscription_id(message)
+    db.update_settings(subscription_id, send_time=send_time)
+    db.clear_last_sent_date(subscription_id)
     await message.answer(
         f"تم ضبط وقت الإرسال اليومي على {send_time} ✅\n"
         "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة."
@@ -360,7 +389,7 @@ async def set_page(message: types.Message):
         await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
         return
 
-    db.update_settings(message.from_user.id, page=page)
+    db.update_settings(get_subscription_id(message), page=page)
     await message.answer(f"تم ضبط صفحة البداية الحالية على {page} ✅")
 
 
@@ -373,21 +402,22 @@ async def send_azkar(message: types.Message):
 @dp.message(Command("pause"))
 async def pause(message: types.Message):
     await ensure_user(message)
-    db.update_settings(message.from_user.id, is_active=False)
+    db.update_settings(get_subscription_id(message), is_active=False)
     await message.answer("تم إيقاف الورد اليومي مؤقتًا ⏸\nيمكنك استئنافه عبر /resume")
 
 
 @dp.message(Command("resume"))
 async def resume(message: types.Message):
     await ensure_user(message)
-    db.update_settings(message.from_user.id, is_active=True)
+    db.update_settings(get_subscription_id(message), is_active=True)
     await message.answer("تم استئناف الورد اليومي ✅")
 
 
 @dp.message(Command("send_now"))
 async def send_now(message: types.Message):
     await ensure_user(message)
-    user = db.get_user(message.from_user.id)
+    subscription_id = get_subscription_id(message)
+    user = db.get_user(subscription_id)
     if not user:
         await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
         return
@@ -418,7 +448,7 @@ async def status_button(message: types.Message):
 @dp.message(F.text == BTN_SET_TIME)
 async def ask_time_button(message: types.Message):
     await ensure_user(message)
-    PENDING_ACTIONS[message.from_user.id] = "time"
+    PENDING_ACTIONS[get_subscription_id(message)] = "time"
     await message.answer(
         "⏰ أرسل وقت الإرسال اليومي بصيغة 24 ساعة.\n\n"
         "مثال: 08:00 أو 21:30\n"
@@ -429,7 +459,7 @@ async def ask_time_button(message: types.Message):
 @dp.message(F.text == BTN_SET_GOAL)
 async def ask_goal_button(message: types.Message):
     await ensure_user(message)
-    PENDING_ACTIONS[message.from_user.id] = "goal"
+    PENDING_ACTIONS[get_subscription_id(message)] = "goal"
     await message.answer(
         "🔢 أرسل عدد صفحات الورد اليومي.\n\n"
         "مثال: 1 أو 5 أو 10\n"
@@ -440,7 +470,7 @@ async def ask_goal_button(message: types.Message):
 @dp.message(F.text == BTN_SET_PAGE)
 async def ask_page_button(message: types.Message):
     await ensure_user(message)
-    PENDING_ACTIONS[message.from_user.id] = "page"
+    PENDING_ACTIONS[get_subscription_id(message)] = "page"
     await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
 
 
@@ -454,24 +484,22 @@ async def resume_button(message: types.Message):
     await resume(message)
 
 
-@dp.message(
-    F.text,
-    lambda message: message.from_user and message.from_user.id in PENDING_ACTIONS,
-)
+@dp.message(F.text, lambda message: message.chat.id in PENDING_ACTIONS)
 async def handle_pending_input(message: types.Message):
     await ensure_user(message)
-    action = PENDING_ACTIONS.pop(message.from_user.id)
+    subscription_id = get_subscription_id(message)
+    action = PENDING_ACTIONS.pop(subscription_id)
     text = normalize_digits(message.text.strip())
 
     if action == "time":
         if not TIME_PATTERN.match(text):
-            PENDING_ACTIONS[message.from_user.id] = "time"
+            PENDING_ACTIONS[subscription_id] = "time"
             await message.answer(
                 "صيغة الوقت غير صحيحة. أرسل الوقت هكذا: 08:00 أو 21:30"
             )
             return
-        db.update_settings(message.from_user.id, send_time=text)
-        db.clear_last_sent_date(message.from_user.id)
+        db.update_settings(subscription_id, send_time=text)
+        db.clear_last_sent_date(subscription_id)
         await message.answer(
             f"تم ضبط وقت الإرسال اليومي على {text} ✅\n"
             "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
@@ -482,10 +510,10 @@ async def handle_pending_input(message: types.Message):
     if action == "goal":
         goal = parse_positive_int(text, 1, 604)
         if goal is None:
-            PENDING_ACTIONS[message.from_user.id] = "goal"
+            PENDING_ACTIONS[subscription_id] = "goal"
             await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
             return
-        db.update_settings(message.from_user.id, goal=goal)
+        db.update_settings(subscription_id, goal=goal)
         await message.answer(
             f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard()
         )
@@ -494,10 +522,10 @@ async def handle_pending_input(message: types.Message):
     if action == "page":
         page = parse_positive_int(text, 1, 604)
         if page is None:
-            PENDING_ACTIONS[message.from_user.id] = "page"
+            PENDING_ACTIONS[subscription_id] = "page"
             await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
             return
-        db.update_settings(message.from_user.id, page=page)
+        db.update_settings(subscription_id, page=page)
         await message.answer(
             f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard()
         )
