@@ -974,6 +974,51 @@ async def admin_send_dua_button(message: types.Message):
     await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
 
 
+async def set_bot_commands() -> None:
+    user_commands_ar = [
+        types.BotCommand(command="start", description="بدء الاشتراك في الورد اليومي"),
+        types.BotCommand(command="status", description="عرض إعداداتك الحالية"),
+        types.BotCommand(command="goal", description="ضبط عدد الصفحات /goal 5"),
+        types.BotCommand(command="time", description="ضبط وقت الإرسال /time 08:00"),
+        types.BotCommand(command="page", description="ضبط الصفحة الحالية /page 25"),
+        types.BotCommand(command="send_now", description="إرسال ورد اليوم الآن"),
+        types.BotCommand(command="azkar", description="ذكر أو دعاء الآن"),
+        types.BotCommand(command="pause", description="إيقاف الإرسال مؤقتاً"),
+        types.BotCommand(command="resume", description="استئناف الإرسال"),
+    ]
+    user_commands_en = [
+        types.BotCommand(command="start", description="Subscribe to daily Quran wird"),
+        types.BotCommand(command="status", description="View your current settings"),
+        types.BotCommand(command="goal", description="Set daily pages /goal 5"),
+        types.BotCommand(command="time", description="Set send time /time 08:00"),
+        types.BotCommand(command="page", description="Set current page /page 25"),
+        types.BotCommand(command="send_now", description="Send today's portion now"),
+        types.BotCommand(command="azkar", description="Get a dua or dhikr now"),
+        types.BotCommand(command="pause", description="Pause daily sending"),
+        types.BotCommand(command="resume", description="Resume daily sending"),
+    ]
+    admin_commands_ar = [
+        types.BotCommand(command="admin_stats", description="عدد المشتركين النشطين"),
+        types.BotCommand(command="broadcast", description="تعميم رسالة للجميع"),
+        types.BotCommand(command="admin_send_dua", description="إرسال دعاء للجميع"),
+        types.BotCommand(command="set_khatma_count", description="ضبط رقم الختمة لمستخدم"),
+    ]
+    admin_commands_en = [
+        types.BotCommand(command="admin_stats", description="Active subscribers count"),
+        types.BotCommand(command="broadcast", description="Broadcast message to all"),
+        types.BotCommand(command="admin_send_dua", description="Send dua to all users"),
+        types.BotCommand(command="set_khatma_count", description="Set khatma number for user"),
+    ]
+    try:
+        await bot.set_my_commands(user_commands_ar, scope=types.BotCommandScopeAllPrivateChats(), language_code="ar")
+        await bot.set_my_commands(user_commands_en, scope=types.BotCommandScopeAllPrivateChats(), language_code="en")
+        await bot.set_my_commands(admin_commands_ar, scope=types.BotCommandScopeAllChatAdministrators(), language_code="ar")
+        await bot.set_my_commands(admin_commands_en, scope=types.BotCommandScopeAllChatAdministrators(), language_code="en")
+        logger.info("Bot commands registered successfully")
+    except Exception:
+        logger.exception("Failed to set bot commands")
+
+
 async def main() -> None:
     try:
         try:
@@ -987,6 +1032,8 @@ async def main() -> None:
 
         global health_runner
         health_runner = await start_health_server()
+
+        await set_bot_commands()
 
         scheduler.add_job(
             check_due_daily_quran, "interval", seconds=20, max_instances=1
