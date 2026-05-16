@@ -267,6 +267,25 @@ def get_subscription_language(subscription_id: int) -> str:
     return "ar"
 
 
+def check_and_mark_setup(user_id: int) -> None:
+    user = db.get_user(user_id)
+    if user and not user.get("is_setup", False):
+        if user["daily_goal"] > 1 and user["send_time"] != "08:00":
+            db.update_settings(user_id, is_setup=True)
+            language = user["language"]
+            asyncio.create_task(
+                bot.send_message(
+                    user_id,
+                    "✅ تم اكتمال إعدادك بنجاح!\n\n"
+                    "سيتم إرسال وردك اليومي تلقائيًا في الوقت المحدد.\n\n"
+                    f"📖 الورد: {user['daily_goal']} صفحة يوميًا\n"
+                    f"⏰ وقت الإرسال: {user['send_time']}\n"
+                    f"📍 الصفحة الحالية: {user['current_page']}",
+                    reply_markup=main_keyboard(language),
+                )
+            )
+
+
 async def health_check(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "service": "quran-tele"})
 
@@ -293,12 +312,14 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     language = get_subscription_language(user_id)
     total_completed_khatmas = db.count_total_completed_khatmas()
     total_khatma_readers = db.count_total_khatma_readers()
+    khatma_number = db.get_khatma_number(user_id)
     caption = build_wird_caption(
         start_page=pages[0],
         end_page=pages[-1],
         total_completed_khatmas=total_completed_khatmas,
         total_khatma_readers=total_khatma_readers,
         now=datetime.now(scheduler.timezone),
+        khatma_number=khatma_number,
         language=language,
     )
     pdf_file = None
@@ -362,7 +383,6 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 "هل قرأت الختمة كاملة؟",
                 reply_markup=khatma_keyboard,
             )
-            db.increment_completed_khatmas(user_id)
             db.update_settings(user_id, page=1)
         else:
             db.update_settings(user_id, page=pages[-1] + 1)
@@ -477,9 +497,13 @@ async def status(message: types.Message):
         return
 
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
+    setup_text = "مكتمل ✅" if user.get("is_setup", False) else "غير مكتمل ❌"
+    khatma_num = user.get("khatma_number", 0)
     await message.answer(
         "📌 إعداداتك الحالية:\n\n"
         f"الحالة: {active_text}\n"
+        f"الإعداد: {setup_text}\n"
+        f"الختمة الحالية: {khatma_num}\n"
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
         f"وقت الإرسال: {user['send_time']}",
@@ -500,8 +524,10 @@ async def set_goal(message: types.Message):
         await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
         return
 
-    db.update_settings(get_subscription_id(message), goal=goal)
+    subscription_id = get_subscription_id(message)
+    db.update_settings(subscription_id, goal=goal)
     await message.answer(f"تم ضبط الورد اليومي على {goal} صفحة ✅")
+    check_and_mark_setup(subscription_id)
 
 
 @dp.message(Command("time"))
@@ -519,6 +545,7 @@ async def set_time(message: types.Message):
         f"تم ضبط وقت الإرسال اليومي على {send_time} ✅\n"
         "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة."
     )
+    check_and_mark_setup(subscription_id)
 
 
 @dp.message(Command("page"))
@@ -661,6 +688,8 @@ async def handle_khatma_response(callback: types.CallbackQuery):
     if action == "read":
         db.increment_completed_khatmas(user_id)
         db.increment_khatma_read_count(user_id)
+        current_khatma = db.get_khatma_number(user_id)
+        db.update_settings(user_id, khatma_number=current_khatma + 1)
         await callback.answer("جزاكم الله خيرًا! تم تسجيل ختمتك ✅")
         await callback.message.edit_text(
             "🎉 تم تسجيل ختمتك بحمد الله!\n\n"
@@ -668,6 +697,8 @@ async def handle_khatma_response(callback: types.CallbackQuery):
             "سنبدأ ختمة جديدة في الورد القادم بإذن الله."
         )
     else:
+        current_khatma = db.get_khatma_number(user_id)
+        db.update_settings(user_id, khatma_number=current_khatma + 1)
         await callback.answer("تم تسجيل أنك لم تقرأ الختمة")
         await callback.message.edit_text(
             "📝 تم تسجيل أنك لم تقرأ الختمة.\n\n"
@@ -699,6 +730,7 @@ async def handle_pending_input(message: types.Message):
             "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
             reply_markup=main_keyboard(),
         )
+        check_and_mark_setup(subscription_id)
         return
 
     if action == "goal":
@@ -711,6 +743,7 @@ async def handle_pending_input(message: types.Message):
         await message.answer(
             f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard()
         )
+        check_and_mark_setup(subscription_id)
         return
 
     if action == "page":
@@ -758,12 +791,50 @@ async def admin_send_dua(message: types.Message):
     await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
 
 
+@dp.message(Command("set_khatma_count"), F.from_user.id == ADMIN_ID)
+async def set_khatma_count(message: types.Message):
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await message.answer("اكتب الأمر هكذا: /set_khatma_count <user_id> <khatma_number>\nمثال: /set_khatma_count 123456 20")
+        return
+
+    try:
+        user_id = int(parts[1])
+        khatma_number = int(parts[2])
+    except ValueError:
+        await message.answer("رقم المستخدم ورقم الختمة يجب أن يكونا أرقامًا صحيحة.")
+        return
+
+    user = db.get_user(user_id)
+    if not user:
+        await message.answer("المستخدم غير موجود.")
+        return
+
+    db.update_settings(user_id, khatma_number=khatma_number)
+    await message.answer(f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}")
+
+
+ALL_BUTTON_TEXTS = [
+    BTN_SEND_NOW, "📖 Send wird now",
+    BTN_AZKAR, "🤲 Dua now",
+    BTN_STATUS, "📌 My settings",
+    BTN_SET_TIME, "⏰ Set send time",
+    BTN_SET_GOAL, "🔢 Set daily pages",
+    BTN_SET_PAGE, "📍 Set current page",
+    BTN_PAUSE, "⏸ Pause",
+    BTN_RESUME, "▶️ Resume",
+    BTN_LANGUAGE, "🌐 Change language",
+]
+
+
 @dp.message(F.text, F.chat.type == "private")
 async def fallback(message: types.Message):
     await ensure_user(message)
     subscription_id = get_subscription_id(message)
     if subscription_id in PENDING_ACTIONS:
         await handle_pending_input(message)
+        return
+    if message.text.strip() in ALL_BUTTON_TEXTS:
         return
     user = db.get_user(subscription_id)
     if user and user["daily_goal"] == 1 and user["send_time"] == "08:00" and user["current_page"] == 1:

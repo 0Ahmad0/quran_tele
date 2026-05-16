@@ -33,7 +33,9 @@ class DBManager:
                     last_sent_date TEXT,
                     completed_khatmas INTEGER NOT NULL DEFAULT 0,
                     language TEXT NOT NULL DEFAULT 'ar',
-                    khatma_read_count INTEGER NOT NULL DEFAULT 0
+                    khatma_read_count INTEGER NOT NULL DEFAULT 0,
+                    is_setup INTEGER NOT NULL DEFAULT 0,
+                    khatma_number INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -43,6 +45,12 @@ class DBManager:
             self._ensure_column(conn, "users", "language", "TEXT NOT NULL DEFAULT 'ar'")
             self._ensure_column(
                 conn, "users", "khatma_read_count", "INTEGER NOT NULL DEFAULT 0"
+            )
+            self._ensure_column(
+                conn, "users", "is_setup", "INTEGER NOT NULL DEFAULT 0"
+            )
+            self._ensure_column(
+                conn, "users", "khatma_number", "INTEGER NOT NULL DEFAULT 0"
             )
 
     def _ensure_column(
@@ -74,6 +82,8 @@ class DBManager:
         is_active: Optional[bool] = None,
         last_sent_date: Optional[str] = None,
         language: Optional[str] = None,
+        is_setup: Optional[bool] = None,
+        khatma_number: Optional[int] = None,
     ) -> None:
         updates = []
         params = []
@@ -96,6 +106,12 @@ class DBManager:
         if language is not None:
             updates.append("language = ?")
             params.append(language)
+        if is_setup is not None:
+            updates.append("is_setup = ?")
+            params.append(1 if is_setup else 0)
+        if khatma_number is not None:
+            updates.append("khatma_number = ?")
+            params.append(khatma_number)
 
         if not updates:
             return
@@ -124,6 +140,7 @@ class DBManager:
                 """
                 SELECT * FROM users
                 WHERE is_active = 1
+                  AND is_setup = 1
                   AND (last_sent_date IS NULL OR last_sent_date != ?)
                   AND (
                         send_time <= ?
@@ -181,3 +198,10 @@ class DBManager:
                 "SELECT COALESCE(SUM(khatma_read_count), 0) AS total FROM users"
             ).fetchone()
             return int(row["total"])
+
+    def get_khatma_number(self, user_id: int) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT khatma_number FROM users WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            return int(row["khatma_number"]) if row else 0
