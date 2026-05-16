@@ -104,6 +104,12 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 types.FSInputFile(pdf_file),
                 caption=f"{caption}\nتم إرساله كملف PDF لسهولة التصفح.",
             )
+        elif len(pages) == 1:
+            await bot.send_photo(
+                user_id,
+                photo=IMAGE_URL_TEMPLATE.format(page=pages[0]),
+                caption=caption,
+            )
         else:
             media = [
                 types.InputMediaPhoto(media=IMAGE_URL_TEMPLATE.format(page=page))

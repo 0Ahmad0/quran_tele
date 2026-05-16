@@ -9,7 +9,9 @@ import aiohttp
 import img2pdf
 
 TOTAL_PAGES = 604
-IMAGE_URL_TEMPLATE = "https://www.searchquran.org/quran/images/604/{page}.png"
+IMAGE_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/maknon/Quran/main/pages-hafs/{page}.png"
+)
 TMP_DIR = Path("tmp")
 
 DUAS = [
