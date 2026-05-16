@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 from database import DBManager
 from utils import (
     DUAS,
-    IMAGE_URL_TEMPLATE,
     cleanup_file,
+    generate_quran_images,
     generate_quran_pdf,
     get_pages_logic,
 )
@@ -95,8 +95,19 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     pages, is_finish = get_pages_logic(current_page, goal)
     caption = f"📖 وردكم اليومي: الصفحات من {pages[0]} إلى {pages[-1]}"
     pdf_file = None
+    image_files = []
 
     try:
+        logger.info(
+            "Preparing daily Quran for user=%s goal=%s current_page=%s pages=%s-%s count=%s",
+            user_id,
+            goal,
+            current_page,
+            pages[0],
+            pages[-1],
+            len(pages),
+        )
+
         if len(pages) > 10:
             pdf_file = await generate_quran_pdf(pages, user_id)
             await bot.send_document(
@@ -104,19 +115,21 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 types.FSInputFile(pdf_file),
                 caption=f"{caption}\nتم إرساله كملف PDF لسهولة التصفح.",
             )
-        elif len(pages) == 1:
-            await bot.send_photo(
-                user_id,
-                photo=IMAGE_URL_TEMPLATE.format(page=pages[0]),
-                caption=caption,
-            )
         else:
-            media = [
-                types.InputMediaPhoto(media=IMAGE_URL_TEMPLATE.format(page=page))
-                for page in pages
-            ]
-            media[0].caption = caption
-            await bot.send_media_group(user_id, media)
+            image_files = await generate_quran_images(pages, user_id)
+            if len(image_files) == 1:
+                await bot.send_photo(
+                    user_id,
+                    photo=types.FSInputFile(image_files[0]),
+                    caption=caption,
+                )
+            else:
+                media = [
+                    types.InputMediaPhoto(media=types.FSInputFile(image_file))
+                    for image_file in image_files
+                ]
+                media[0].caption = caption
+                await bot.send_media_group(user_id, media)
 
         if is_finish:
             await bot.send_message(
@@ -143,6 +156,8 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     finally:
         if pdf_file:
             cleanup_file(pdf_file)
+        for image_file in image_files:
+            cleanup_file(image_file)
 
 
 async def check_due_daily_quran() -> None:

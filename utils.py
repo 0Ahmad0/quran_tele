@@ -77,6 +77,12 @@ async def download_page(
     return path
 
 
+async def generate_quran_images(pages: Iterable[int], user_id: int) -> list[Path]:
+    pages = list(pages)
+    async with aiohttp.ClientSession() as session:
+        return [await download_page(session, page, user_id) for page in pages]
+
+
 async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
     pages = list(pages)
     TMP_DIR.mkdir(exist_ok=True)
@@ -84,10 +90,7 @@ async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
     image_paths: list[Path] = []
 
     try:
-        async with aiohttp.ClientSession() as session:
-            for page in pages:
-                image_paths.append(await download_page(session, page, user_id))
-
+        image_paths = await generate_quran_images(pages, user_id)
         pdf_bytes = await asyncio.to_thread(
             img2pdf.convert, [str(path) for path in image_paths]
         )
@@ -95,10 +98,7 @@ async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
         return pdf_path
     finally:
         for path in image_paths:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_file(path)
 
 
 def cleanup_file(path: os.PathLike | str) -> None:
