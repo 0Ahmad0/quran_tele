@@ -1,275 +1,334 @@
-# Quran Tele 🌙
+# 🌙 وَرْد — رفيقك الذكي للمحافظة على وردك اليومي من القرآن الكريم
 
-A professional Telegram bot for sending a personalized daily Quran reading plan. Built with **Python**, **aiogram 3.x**, **APScheduler**, and **SQLite**.
+<div align="center">
 
-The bot helps users keep a consistent Quran habit by sending their daily pages automatically at their preferred time. It can send pages as a Telegram media album or generate a PDF when the daily portion is larger.
+```
+  _____                    _
+ / ____|                  | |
+| |     _ __ _____      __| | _____   __
+| |    | '__/ _ \ \ /\ / /| |/ _ \ \ / /
+| |____| | | (_) \ V  V / | | (_) \ V /
+ \_____|_|  \___/ \_/\_/  |_|\___/ \_/
+```
 
----
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![aiogram](https://img.shields.io/badge/aiogram-3.x-0078D4?logo=telegram)](https://docs.aiogram.dev/)
+[![SQLite](https://img.shields.io/badge/Database-SQLite-003B57?logo=sqlite)](https://www.sqlite.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/0Ahmad0/quran_tele?style=social)](https://github.com/0Ahmad0/quran_tele)
 
-## ✨ Features
+**بوت تيليجرام احترافي يُرسل لك وردك اليومي من القرآن الكريم تلقائيًا** ⏰📖
 
-- 📖 Daily Quran pages for every subscriber
-- ⏰ Custom sending time per user
-- 🔢 Custom daily page goal per user
-- 📍 Custom current page / starting page
-- 🖼 Sends pages as images when the portion is 10 pages or fewer
-- 📄 Generates a PDF automatically for larger portions
-- 🎉 Detects Quran completion and starts a new khatma
-- 🤲 Sends periodic duas every 8 hours
-- 👑 Admin-only statistics and broadcast commands
-- 🔐 Secure configuration through environment variables
-- 🗃 Lightweight SQLite database
-
----
-
-## 🧰 Tech Stack
-
-- Python 3.10+
-- aiogram 3.x
-- APScheduler
-- SQLite
-- aiohttp
-- img2pdf
-- python-dotenv
+</div>
 
 ---
 
-## 📁 Project Structure
+## ✨ لمحة عن المشروع
 
-```text
+> في زحمة الحياة وكثرة المشاغل، قد ننسى وردنا أو نؤجله... فجاء هذا البوت ليكون **تذكيرًا لطيفًا** و**رفيقًا ثابتًا** يعينك على الاستمرار مع كتاب الله.
+
+**وَرْد** ليس مجرد بوت — إنه **مُعينٌ على الثبات** مع كتاب الله تعالى، يُرسل لك صفحاتك اليومية في الوقت الذي تختاره، ويتتبع تقدمك حتى إتمام الختمة.
+
+---
+
+## 🚀 المميزات
+
+<table>
+<tr>
+<td>
+
+### 📖 إرسال تلقائي يومي
+يصلك وردك في الوقت الذي تحدده دون أي تدخل يدوي
+
+</td>
+<td>
+
+### ⏰ جدولة مرنة
+حدد الوقت المناسب لك — صباحًا أو مساءً — والبوت يتكفل بالباقي
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🔢 ورد يناسبك
+اختر عدد الصفحات اليومية حسب طاقتك: صفحة واحدة أو أكثر
+
+</td>
+<td>
+
+### 📍 متابعة ذكية للختمة
+البوت يعرف آخر صفحة وصلت إليها ويكمل منها مباشرة
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🖼 صور واضحة للصفحات
+صفحات المصحف بجودة عالية للقراءة المريحة من داخل تيليجرام
+
+</td>
+<td>
+
+### 📄 تحويل تلقائي لـ PDF
+إذا كان الورد أكثر من 10 صفحات، يتم تجهيزه كملف PDF مرتب
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🤲 أذكار وأدعية
+احصل على دعاء مأثور أو ذكر في أي وقت بضغطة زر
+
+</td>
+<td>
+
+### 🎉 تهنئة عند الختم
+عند إتمام الختمة، يُهنئك البوت ويبدأ ختمة جديدة
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🌐 دعم اللغتين
+واجهة عربية وإنجليزية — اختر ما يناسبك
+
+</td>
+<td>
+
+### 👑 لوحة تحكم للمدير
+إحصائيات، بث عام، وإدارة المشتركين
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🛠 التقنيات المستخدمة
+
+```mermaid
+graph LR
+    A[🐍 Python 3.10+] --> B[🤖 aiogram 3.x]
+    A --> C[⏰ APScheduler]
+    A --> D[🗃 SQLite]
+    A --> E[🌐 aiohttp]
+    A --> F[📄 img2pdf]
+    A --> G[🔐 python-dotenv]
+```
+
+| التقنية | الوصف |
+|---------|-------|
+| **Python 3.10+** | لغة البرمجة الأساسية |
+| **aiogram 3.x** | مكتبة تيليجرام غير المتزامنة |
+| **APScheduler** | جدولة المهام وإرسال الورد اليومي |
+| **SQLite** | قاعدة بيانات خفيفة لتخزين إعدادات المستخدمين |
+| **aiohttp** | جلب صفحات المصحف من الإنترنت |
+| **img2pdf** | تحويل صور الصفحات إلى ملف PDF |
+| **python-dotenv** | إدارة المتغيرات البيئية بأمان |
+
+---
+
+## 📂 هيكل المشروع
+
+```
 quran_tele/
-├── main.py              # Telegram bot handlers and scheduler
-├── database.py          # SQLite database manager
-├── utils.py             # Quran page logic, PDF generation, duas
-├── requirements.txt     # Python dependencies
-├── .env.example         # Example environment variables
-├── .gitignore           # Files that must not be pushed
-└── README.md            # Project documentation
+│
+├── 📄 main.py              # نقطة البداية — معالجات أوامر البوت والجدولة
+├── 📄 database.py          # مدير قاعدة بيانات SQLite
+├── 📄 utils.py             # منطق الصفحات، توليد PDF، والأدعية
+├── 📄 requirements.txt     # اعتماديات Python
+├── 📄 .env.example         # مثال على المتغيرات البيئية
+├── 📄 .gitignore           # الملفات المستبعدة من Git
+├── 📄 README.md            # هذا الملف
+└── 📄 DEPLOYMENT.md        # دليل النشر الكامل
 ```
 
 ---
 
-## 🔐 Security First
+## 🔐 الأمان أولاً
 
-Never hardcode your Telegram bot token in the source code.
+> ⚠️ **لا تضع التوكن في الكود أبدًا!**
 
-This project reads secrets from environment variables:
+يقرأ المشروع الأسرار من ملف `.env`:
 
-```text
+```env
 BOT_TOKEN=your_telegram_bot_token
 ADMIN_ID=your_telegram_user_id
 TIMEZONE=Africa/Cairo
 ```
 
-If your bot token was ever shared publicly, regenerate it immediately from [@BotFather](https://t.me/BotFather):
-
-1. Open BotFather
-2. Select your bot
-3. Use `/revoke` or regenerate the token
-4. Update your `.env` file or hosting environment variables
+إذا تم تسريب التوكن الخاص بك، قم بإلغائه فورًا من [@BotFather](https://t.me/BotFather) وتوليد توكن جديد.
 
 ---
 
-## 🚀 Local Setup
+## 🚀 التثبيت المحلي
 
-### 1. Clone the repository
+### 1️⃣ استنساخ المستودع
 
 ```bash
 git clone https://github.com/0Ahmad0/quran_tele.git
 cd quran_tele
 ```
 
-### 2. Create a virtual environment
+### 2️⃣ إنشاء بيئة افتراضية
 
 ```bash
 python -m venv .venv
 ```
 
-Activate it:
+<details>
+<summary><b>تفعيل البيئة — Windows</b></summary>
 
-**Windows:**
-
-```bash
+```powershell
 .venv\Scripts\activate
 ```
+</details>
 
-**Linux / macOS:**
+<details>
+<summary><b>تفعيل البيئة — Linux / macOS</b></summary>
 
 ```bash
 source .venv/bin/activate
 ```
+</details>
 
-### 3. Install dependencies
+### 3️⃣ تثبيت الاعتماديات
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Create your environment file
-
-Copy the example file:
+### 4️⃣ إعداد ملف البيئة
 
 ```bash
+# Linux / macOS
 cp .env.example .env
-```
 
-On Windows PowerShell:
-
-```powershell
+# Windows PowerShell
 Copy-Item .env.example .env
 ```
 
-Then edit `.env`:
+ثم عدّل ملف `.env` ببياناتك:
 
-```text
+```env
 BOT_TOKEN=put_your_new_bot_token_here
 ADMIN_ID=123456789
 TIMEZONE=Africa/Cairo
 ```
 
-### 5. Run the bot
+### 5️⃣ تشغيل البوت
 
 ```bash
 python main.py
 ```
 
----
-
-## 🤖 User Commands
-
-| Command | Description |
-|---|---|
-| `/start` | Subscribe or reactivate the daily Quran plan |
-| `/help` | Show available commands |
-| `/status` | Show current settings |
-| `/goal 5` | Set daily reading goal to 5 pages |
-| `/time 08:00` | Set daily sending time |
-| `/page 25` | Set current Quran page |
-| `/send_now` | Send today's portion immediately |
-| `/pause` | Pause daily sending |
-| `/resume` | Resume daily sending |
+> ✅ عند التشغيل بنجاح، سيظهر لك: `Quran bot started`
 
 ---
 
-## 👑 Admin Commands
+## 📱 أوامر المستخدم
 
-Only the Telegram account matching `ADMIN_ID` can use these commands.
-
-| Command | Description |
-|---|---|
-| `/admin_stats` | Show number of active subscribers |
-| `/broadcast message` | Send a message to all active subscribers |
-| `/admin_send_dua` | Send one dua immediately to all active subscribers |
+| الأمر | الوصف |
+|-------|-------|
+| `/start` | الاشتراك أو إعادة التفعيل |
+| `/help` | عرض المساعدة |
+| `/status` | عرض إعداداتك الحالية |
+| `/goal 5` | ضبط عدد صفحات الورد اليومي |
+| `/time 08:00` | ضبط وقت الإرسال |
+| `/page 25` | ضبط الصفحة الحالية |
+| `/send_now` | إرسال الورد الآن |
+| `/azkar` | ذكر أو دعاء الآن |
+| `/pause` | إيقاف مؤقت |
+| `/resume` | استئناف الإرسال |
 
 ---
 
-## 🕒 Scheduling Logic
+## 👑 أوامر المدير
 
-The bot checks every minute for users whose configured `send_time` matches the current time in `TIMEZONE`.
+> 🔒 متاحة فقط لحساب `ADMIN_ID`
 
-Example:
+| الأمر | الوصف |
+|-------|-------|
+| `/admin_stats` | عدد المشتركين النشطين |
+| `/broadcast الرسالة` | إرسال رسالة لجميع المشتركين |
+| `/admin_send_dua` | إرسال دعاء للجميع |
+| `/set_khatma_count <id> <num>` | ضبط رقم الختمة لمستخدم |
 
-```text
-TIMEZONE=Africa/Cairo
+---
+
+## ⏰ منطق الجدولة
+
+```
+┌─────────────────────────────────────────────┐
+│  كل 20 ثانية                                 │
+│  ┌───────────────────────────────────────┐  │
+│  │ هل حان وقت الإرسال لهذا المستخدم؟     │  │
+│  │ ───────────────────────────────────── │  │
+│  │ ✅ نعم ← إرسال الورد                  │  │
+│  │ ❌ لا  ← تخطي                         │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
 ```
 
-If a user has:
+البوت يفحص كل 20 ثانية المستخدمين الذين يحين وقت إرسالهم حسب `TIMEZONE` المحدد.
 
-```text
-send_time = 08:00
+---
+
+## 📖 منطق حساب الصفحات
+
 ```
+المصحف = 604 صفحة
 
-The bot sends their daily Quran pages when local time reaches `08:00`.
+البداية ← من current_page
+الإرسال ← daily_goal صفحة
 
----
+إذا كانت الصفحات المتبقية ≤ (daily_goal × 1.5)
+    ← إرسال كل الصفحات المتبقية (نهاية الختمة)
+وإلا
+    ← إرسال daily_goal صفحة فقط
 
-## 📖 Quran Portion Logic
-
-The Quran has 604 pages.
-
-The bot calculates the pages like this:
-
-- Starts from the user's `current_page`
-- Sends `daily_goal` pages
-- If the remaining pages are less than or equal to `1.5 × daily_goal`, it sends all remaining pages
-- After completion, the next khatma starts from page 1
-
----
-
-## 📄 PDF Logic
-
-- If the daily portion is **10 pages or fewer**, the bot sends a Telegram media album.
-- If the daily portion is **more than 10 pages**, the bot downloads the images and generates a PDF.
-
-Temporary files are stored in `tmp/` and cleaned up after sending.
-
----
-
-## ☁️ Deployment Notes
-
-For a full step-by-step deployment guide, read [`DEPLOYMENT.md`](DEPLOYMENT.md).
-
-This repository also includes:
-
-- `render.yaml` for Render Background Worker configuration
-- `runtime.txt` to request Python 3.11 on supported hosting platforms
-
-You can deploy this bot on platforms such as:
-
-- Render
-- Koyeb
-- Railway
-- VPS
-
-For hosting platforms, set these as environment variables in the dashboard:
-
-```text
-BOT_TOKEN
-ADMIN_ID
-TIMEZONE
-```
-
-Do **not** upload your real `.env` file.
-
-### Important SQLite Note
-
-Some free hosting platforms use temporary storage. This means `quran_bot.db` may be deleted after restart or redeploy.
-
-For production use, consider replacing SQLite with a persistent database such as:
-
-- PostgreSQL
-- Supabase
-- Railway PostgreSQL
-- Neon
-
----
-
-## 🧪 Useful Git Commands
-
-Initial push:
-
-```bash
-git init
-git add .
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/0Ahmad0/quran_tele.git
-git push -u origin main
-```
-
-If you already added the remote:
-
-```bash
-git add .
-git commit -m "update quran telegram bot"
-git push
+بعد الختمة ← العودة للصفحة 1
 ```
 
 ---
 
-## 🛡 Files That Must Stay Private
+## 📄 منطق الـ PDF
 
-These files should never be committed:
+| عدد الصفحات | طريقة الإرسال |
+|-------------|---------------|
+| ≤ 10 صفحة | ألبوم صور داخل تيليجرام |
+| > 10 صفحة | ملف PDF جاهز للتصفح |
+
+يتم تنظيف الملفات المؤقتة تلقائيًا بعد الإرسال.
+
+---
+
+## ☁️ النشر على السحابة
+
+للدليل الكامل، اقرأ [`DEPLOYMENT.md`](DEPLOYMENT.md)
+
+### المنصات المدعومة
+
+<div align="center">
+
+| المنصة | النوع |
+|--------|-------|
+| 🟣 **Render** | Background Worker |
+| 🔵 **Koyeb** | Docker / Python |
+| 🟢 **Railway** | Python |
+| 🖥 **VPS** | أي خادم Linux |
+
+</div>
+
+> ⚠️ **تنبيه SQLite:** بعض المنصات المجانية تحذف البيانات عند إعادة التشغيل. للإنتاج، استخدم PostgreSQL.
+
+---
+
+## 🛡 ملفات يجب ألا تُرفع على Git
 
 ```text
 .env
@@ -279,16 +338,39 @@ __pycache__/
 *.pyc
 ```
 
-They are already covered by `.gitignore`.
+جميعها مشمولة في `.gitignore`.
 
 ---
 
-## 📜 License
+## 🤲 رسالة المطور
 
-This project is open-source. You can use and modify it for personal or educational purposes.
+<div align="center">
+
+> **تم تطوير هذا البوت بواسطة م.أحمد الحريري**
+>
+> بعناية واهتمام ليكون أداة نافعة لخدمة كتاب الله
+> ومساعدة المسلمين على الثبات على الورد اليومي.
+>
+> نسأل الله أن يجعله **صدقة جارية**
+> وأن ينفع به كل من استخدمه وشاركه.
+>
+> 🌿 *ابدأ الآن، واجعل القرآن رفيق يومك*
+
+</div>
 
 ---
 
-## 🤲 Final Note
+## 📜 الرخصة
 
-May Allah make this bot a source of ongoing reward and help people stay connected with the Quran.
+هذا المشروع مفتوح المصدر. يمكنك استخدامه وتعديله للأغراض الشخصية والتعليمية.
+
+---
+
+<div align="center">
+
+**⭐ إن أعجبك المشروع، لا تنسَ إعطاءه نجمة على GitHub**
+
+[![GitHub stars](https://img.shields.io/github/stars/0Ahmad0/quran_tele?style=social)](https://github.com/0Ahmad0/quran_tele)
+[![GitHub forks](https://img.shields.io/github/forks/0Ahmad0/quran_tele?style=social)](https://github.com/0Ahmad0/quran_tele)
+
+</div>
