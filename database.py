@@ -95,17 +95,28 @@ class DBManager:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM users WHERE is_active = 1").fetchall()
 
-    def get_users_due(self, current_time: str, today: str) -> list[sqlite3.Row]:
+    def get_users_due(
+        self, current_time: str, pdf_prepare_time: str, today: str
+    ) -> list[sqlite3.Row]:
         with self.connect() as conn:
             return conn.execute(
                 """
                 SELECT * FROM users
                 WHERE is_active = 1
-                  AND send_time <= ?
                   AND (last_sent_date IS NULL OR last_sent_date != ?)
+                  AND (
+                        send_time <= ?
+                        OR (daily_goal > 10 AND send_time <= ?)
+                  )
                 """,
-                (current_time, today),
+                (today, current_time, pdf_prepare_time),
             ).fetchall()
+
+    def clear_last_sent_date(self, user_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE users SET last_sent_date = NULL WHERE user_id = ?", (user_id,)
+            )
 
     def count_active_users(self) -> int:
         with self.connect() as conn:

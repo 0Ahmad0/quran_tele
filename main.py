@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from random import choice
 
 from aiogram import Bot, Dispatcher, F, types
@@ -49,6 +49,42 @@ scheduler = AsyncIOScheduler(timezone=CHECK_TIMEZONE)
 
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
+BTN_SEND_NOW = "📖 أرسل الورد الآن"
+BTN_AZKAR = "🤲 ذكر/دعاء الآن"
+BTN_STATUS = "📌 إعداداتي"
+BTN_SET_TIME = "⏰ ضبط وقت الإرسال"
+BTN_SET_GOAL = "🔢 ضبط عدد الصفحات"
+BTN_SET_PAGE = "📍 ضبط الصفحة الحالية"
+BTN_PAUSE = "⏸ إيقاف مؤقت"
+BTN_RESUME = "▶️ استئناف"
+
+PENDING_ACTIONS: dict[int, str] = {}
+
+
+def main_keyboard() -> types.ReplyKeyboardMarkup:
+    return types.ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                types.KeyboardButton(text=BTN_SEND_NOW),
+                types.KeyboardButton(text=BTN_AZKAR),
+            ],
+            [
+                types.KeyboardButton(text=BTN_STATUS),
+                types.KeyboardButton(text=BTN_SET_TIME),
+            ],
+            [
+                types.KeyboardButton(text=BTN_SET_GOAL),
+                types.KeyboardButton(text=BTN_SET_PAGE),
+            ],
+            [
+                types.KeyboardButton(text=BTN_PAUSE),
+                types.KeyboardButton(text=BTN_RESUME),
+            ],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="اختر من الأزرار أو اكتب أمرًا...",
+    )
+
 
 HELP_TEXT = """
 أهلًا بك في بوت ورد القرآن اليومي 🌿
@@ -76,9 +112,14 @@ def is_admin(message: types.Message) -> bool:
     return bool(message.from_user and message.from_user.id == ADMIN_ID)
 
 
+def normalize_digits(value: str) -> str:
+    translation = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    return value.translate(translation)
+
+
 def parse_positive_int(value: str, minimum: int, maximum: int) -> int | None:
     try:
-        number = int(value)
+        number = int(normalize_digits(value))
     except ValueError:
         return None
 
@@ -167,13 +208,24 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
 async def check_due_daily_quran() -> None:
     now = datetime.now(scheduler.timezone)
     current_time = now.strftime("%H:%M")
+    pdf_prepare_datetime = now + timedelta(minutes=1)
+    pdf_prepare_time = (
+        pdf_prepare_datetime.strftime("%H:%M")
+        if pdf_prepare_datetime.date() == now.date()
+        else current_time
+    )
     today = now.date().isoformat()
-    users = db.get_users_due(current_time, today)
+    users = db.get_users_due(current_time, pdf_prepare_time, today)
 
     if not users:
         return
 
-    logger.info("Sending daily Quran to %s due users at %s", len(users), current_time)
+    logger.info(
+        "Sending daily Quran to %s due users at %s, PDF pre-start window=%s",
+        len(users),
+        current_time,
+        pdf_prepare_time,
+    )
     for user in users:
         sent = await send_daily_quran(
             user["user_id"], user["daily_goal"], user["current_page"]
@@ -209,14 +261,15 @@ async def start(message: types.Message):
         "• الورد: صفحة واحدة يوميًا\n"
         "• وقت الإرسال: 08:00\n"
         "• صفحة البداية: 1\n\n"
-        "استخدم /help لعرض كل الأوامر."
+        "استخدم الأزرار بالأسفل أو /help لعرض كل الأوامر.",
+        reply_markup=main_keyboard(),
     )
 
 
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
     await ensure_user(message)
-    await message.answer(HELP_TEXT)
+    await message.answer(HELP_TEXT, reply_markup=main_keyboard())
 
 
 @dp.message(Command("status"))
@@ -233,7 +286,8 @@ async def status(message: types.Message):
         f"الحالة: {active_text}\n"
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
-        f"وقت الإرسال: {user['send_time']}"
+        f"وقت الإرسال: {user['send_time']}",
+        reply_markup=main_keyboard(),
     )
 
 
@@ -258,13 +312,16 @@ async def set_goal(message: types.Message):
 async def set_time(message: types.Message):
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2 or not TIME_PATTERN.match(parts[1].strip()):
+    send_time = normalize_digits(parts[1].strip()) if len(parts) >= 2 else ""
+    if not TIME_PATTERN.match(send_time):
         await message.answer("اكتب الوقت بصيغة 24 ساعة هكذا: /time 08:00")
         return
-
-    send_time = parts[1].strip()
     db.update_settings(message.from_user.id, send_time=send_time)
-    await message.answer(f"تم ضبط وقت الإرسال اليومي على {send_time} ✅")
+    db.clear_last_sent_date(message.from_user.id)
+    await message.answer(
+        f"تم ضبط وقت الإرسال اليومي على {send_time} ✅\n"
+        "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة."
+    )
 
 
 @dp.message(Command("page"))
@@ -320,6 +377,109 @@ async def send_now(message: types.Message):
         await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
 
 
+@dp.message(F.text == BTN_SEND_NOW)
+async def send_now_button(message: types.Message):
+    await send_now(message)
+
+
+@dp.message(F.text == BTN_AZKAR)
+async def azkar_button(message: types.Message):
+    await send_azkar(message)
+
+
+@dp.message(F.text == BTN_STATUS)
+async def status_button(message: types.Message):
+    await status(message)
+
+
+@dp.message(F.text == BTN_SET_TIME)
+async def ask_time_button(message: types.Message):
+    await ensure_user(message)
+    PENDING_ACTIONS[message.from_user.id] = "time"
+    await message.answer(
+        "⏰ أرسل وقت الإرسال اليومي بصيغة 24 ساعة.\n\n"
+        "مثال: 08:00 أو 21:30\n"
+        "إذا كان الوقت قد حان أو مرّ اليوم، سيرسل البوت خلال أقل من دقيقة."
+    )
+
+
+@dp.message(F.text == BTN_SET_GOAL)
+async def ask_goal_button(message: types.Message):
+    await ensure_user(message)
+    PENDING_ACTIONS[message.from_user.id] = "goal"
+    await message.answer(
+        "🔢 أرسل عدد صفحات الورد اليومي.\n\n"
+        "مثال: 1 أو 5 أو 10\n"
+        "إذا كان أكثر من 10 صفحات سيتم تجهيزه كملف PDF."
+    )
+
+
+@dp.message(F.text == BTN_SET_PAGE)
+async def ask_page_button(message: types.Message):
+    await ensure_user(message)
+    PENDING_ACTIONS[message.from_user.id] = "page"
+    await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
+
+
+@dp.message(F.text == BTN_PAUSE)
+async def pause_button(message: types.Message):
+    await pause(message)
+
+
+@dp.message(F.text == BTN_RESUME)
+async def resume_button(message: types.Message):
+    await resume(message)
+
+
+@dp.message(
+    F.text,
+    lambda message: message.from_user and message.from_user.id in PENDING_ACTIONS,
+)
+async def handle_pending_input(message: types.Message):
+    await ensure_user(message)
+    action = PENDING_ACTIONS.pop(message.from_user.id)
+    text = normalize_digits(message.text.strip())
+
+    if action == "time":
+        if not TIME_PATTERN.match(text):
+            PENDING_ACTIONS[message.from_user.id] = "time"
+            await message.answer(
+                "صيغة الوقت غير صحيحة. أرسل الوقت هكذا: 08:00 أو 21:30"
+            )
+            return
+        db.update_settings(message.from_user.id, send_time=text)
+        db.clear_last_sent_date(message.from_user.id)
+        await message.answer(
+            f"تم ضبط وقت الإرسال اليومي على {text} ✅\n"
+            "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
+            reply_markup=main_keyboard(),
+        )
+        return
+
+    if action == "goal":
+        goal = parse_positive_int(text, 1, 604)
+        if goal is None:
+            PENDING_ACTIONS[message.from_user.id] = "goal"
+            await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
+            return
+        db.update_settings(message.from_user.id, goal=goal)
+        await message.answer(
+            f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard()
+        )
+        return
+
+    if action == "page":
+        page = parse_positive_int(text, 1, 604)
+        if page is None:
+            PENDING_ACTIONS[message.from_user.id] = "page"
+            await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
+            return
+        db.update_settings(message.from_user.id, page=page)
+        await message.answer(
+            f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard()
+        )
+
+
 @dp.message(Command("admin_stats"), F.from_user.id == ADMIN_ID)
 async def admin_stats(message: types.Message):
     await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
@@ -370,7 +530,9 @@ async def main() -> None:
                 "@BotFather, update your .env BOT_TOKEN, then run python main.py again."
             ) from exc
 
-        scheduler.add_job(check_due_daily_quran, "interval", minutes=1, max_instances=1)
+        scheduler.add_job(
+            check_due_daily_quran, "interval", seconds=20, max_instances=1
+        )
         scheduler.add_job(send_dua_to_all, "interval", hours=8, max_instances=1)
         scheduler.start()
 
