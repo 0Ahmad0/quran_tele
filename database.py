@@ -95,16 +95,16 @@ class DBManager:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM users WHERE is_active = 1").fetchall()
 
-    def get_users_due(self, send_time: str, today: str) -> list[sqlite3.Row]:
+    def get_users_due(self, current_time: str, today: str) -> list[sqlite3.Row]:
         with self.connect() as conn:
             return conn.execute(
                 """
                 SELECT * FROM users
                 WHERE is_active = 1
-                  AND send_time = ?
+                  AND send_time <= ?
                   AND (last_sent_date IS NULL OR last_sent_date != ?)
                 """,
-                (send_time, today),
+                (current_time, today),
             ).fetchall()
 
     def count_active_users(self) -> int:

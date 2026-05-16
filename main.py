@@ -166,14 +166,14 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
 
 async def check_due_daily_quran() -> None:
     now = datetime.now(scheduler.timezone)
-    send_time = now.strftime("%H:%M")
+    current_time = now.strftime("%H:%M")
     today = now.date().isoformat()
-    users = db.get_users_due(send_time, today)
+    users = db.get_users_due(current_time, today)
 
     if not users:
         return
 
-    logger.info("Sending daily Quran to %s users for time %s", len(users), send_time)
+    logger.info("Sending daily Quran to %s due users at %s", len(users), current_time)
     for user in users:
         sent = await send_daily_quran(
             user["user_id"], user["daily_goal"], user["current_page"]
