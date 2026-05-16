@@ -594,10 +594,14 @@ async def send_now(message: types.Message):
         await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
         return
 
-    await message.answer("جاري تجهيز وردك الآن... ⏳")
+    loading_msg = await message.answer("جاري تجهيز وردك الآن... ⏳")
     sent = await send_daily_quran(
         user["user_id"], user["daily_goal"], user["current_page"]
     )
+    try:
+        await loading_msg.delete()
+    except Exception:
+        pass
     if not sent:
         await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
 
