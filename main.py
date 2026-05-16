@@ -8,7 +8,11 @@ from datetime import datetime
 from random import choice
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramUnauthorizedError,
+)
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
@@ -325,6 +329,15 @@ async def fallback(message: types.Message):
 
 
 async def main() -> None:
+    try:
+        bot_info = await bot.get_me()
+        logger.info("Authorized as @%s", bot_info.username)
+    except TelegramUnauthorizedError as exc:
+        raise RuntimeError(
+            "Telegram rejected BOT_TOKEN as Unauthorized. Generate a new token from "
+            "@BotFather, update your .env BOT_TOKEN, then run python main.py again."
+        ) from exc
+
     scheduler.add_job(check_due_daily_quran, "interval", minutes=1, max_instances=1)
     scheduler.add_job(send_dua_to_all, "interval", hours=8, max_instances=1)
     scheduler.start()
