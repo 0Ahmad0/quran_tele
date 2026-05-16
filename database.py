@@ -35,7 +35,8 @@ class DBManager:
                     language TEXT NOT NULL DEFAULT 'ar',
                     khatma_read_count INTEGER NOT NULL DEFAULT 0,
                     is_setup INTEGER NOT NULL DEFAULT 0,
-                    khatma_number INTEGER NOT NULL DEFAULT 0
+                    khatma_number INTEGER NOT NULL DEFAULT 0,
+                    chat_type TEXT NOT NULL DEFAULT 'private'
                 )
                 """
             )
@@ -52,6 +53,9 @@ class DBManager:
             self._ensure_column(
                 conn, "users", "khatma_number", "INTEGER NOT NULL DEFAULT 0"
             )
+            self._ensure_column(
+                conn, "users", "chat_type", "TEXT NOT NULL DEFAULT 'private'"
+            )
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, definition: str
@@ -60,17 +64,17 @@ class DBManager:
         if column not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-    def add_user(self, user_id: int, username: Optional[str]) -> None:
+    def add_user(self, user_id: int, username: Optional[str], chat_type: str = "private") -> None:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO users (user_id, username)
-                VALUES (?, ?)
+                INSERT INTO users (user_id, username, chat_type)
+                VALUES (?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     username = excluded.username,
                     is_active = 1
                 """,
-                (user_id, username),
+                (user_id, username, chat_type),
             )
 
     def update_settings(
@@ -84,6 +88,7 @@ class DBManager:
         language: Optional[str] = None,
         is_setup: Optional[bool] = None,
         khatma_number: Optional[int] = None,
+        chat_type: Optional[str] = None,
     ) -> None:
         updates = []
         params = []
@@ -112,6 +117,9 @@ class DBManager:
         if khatma_number is not None:
             updates.append("khatma_number = ?")
             params.append(khatma_number)
+        if chat_type is not None:
+            updates.append("chat_type = ?")
+            params.append(chat_type)
 
         if not updates:
             return

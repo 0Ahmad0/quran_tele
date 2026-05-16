@@ -8,12 +8,14 @@ from datetime import datetime, timedelta
 from random import choice
 
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.enums import UpdateType
 from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramUnauthorizedError,
 )
 from aiogram.filters import Command
+from aiogram.types import ChatMemberUpdated
 from aiohttp import web
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
@@ -99,7 +101,7 @@ BUTTON_ALIASES = {
     "🤲 Send Dua to All": "admin_send_dua",
 }
 
-PENDING_ACTIONS: dict[int, str] = {}
+PENDING_ACTIONS: dict[int, tuple[str, int]] = {}
 
 TEXTS = {
     "ar": {
@@ -164,7 +166,7 @@ ALL_BUTTON_TEXTS = [
 ]
 
 
-def main_keyboard(language: str = "ar", is_admin_user: bool = False) -> types.ReplyKeyboardMarkup:
+def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: bool = False) -> types.ReplyKeyboardMarkup:
     rows = [
         [
             types.KeyboardButton(text=get_text(language, "send_now")),
@@ -184,7 +186,7 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False) -> types.Re
         ],
         [types.KeyboardButton(text=get_text(language, "language"))],
     ]
-    if is_admin_user:
+    if is_admin_user and not is_group:
         rows.append([
             types.KeyboardButton(text=get_text(language, "admin_stats")),
             types.KeyboardButton(text=get_text(language, "admin_broadcast")),
@@ -277,6 +279,20 @@ def is_admin(message: types.Message) -> bool:
     return bool(message.from_user and message.from_user.id == ADMIN_ID)
 
 
+async def is_group_admin(message: types.Message) -> bool:
+    if message.chat.type == "private":
+        return True
+    if message.from_user and message.from_user.id == ADMIN_ID:
+        return True
+    if message.from_user is None:
+        return False
+    try:
+        member = await bot.get_chat_member(message.chat.id, message.from_user.id)
+        return member.status in ("creator", "administrator")
+    except Exception:
+        return False
+
+
 def normalize_digits(value: str) -> str:
     translation = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
     return value.translate(translation)
@@ -304,7 +320,8 @@ def get_subscription_name(message: types.Message) -> str | None:
 
 
 async def ensure_user(message: types.Message) -> None:
-    db.add_user(get_subscription_id(message), get_subscription_name(message))
+    chat_type = "group" if message.chat.type in ("group", "supergroup") else "private"
+    db.add_user(get_subscription_id(message), get_subscription_name(message), chat_type)
 
 
 def get_subscription_language(subscription_id: int) -> str:
@@ -320,6 +337,7 @@ def check_and_mark_setup(user_id: int) -> None:
         if user["daily_goal"] > 1 and user["send_time"] != "08:00":
             db.update_settings(user_id, is_setup=True)
             language = user["language"]
+            is_group = user.get("chat_type", "private") == "group"
             asyncio.create_task(
                 bot.send_message(
                     user_id,
@@ -328,7 +346,7 @@ def check_and_mark_setup(user_id: int) -> None:
                     f"📖 الورد: {user['daily_goal']} صفحة يوميًا\n"
                     f"⏰ وقت الإرسال: {user['send_time']}\n"
                     f"📍 الصفحة الحالية: {user['current_page']}",
-                    reply_markup=main_keyboard(language, user_id == ADMIN_ID),
+                    reply_markup=main_keyboard(language, user_id == ADMIN_ID, is_group),
                 )
             )
 
@@ -499,11 +517,104 @@ async def send_dua_to_all() -> None:
         await asyncio.sleep(0.1)
 
 
+NOT_ADMIN_GROUP_MESSAGE = (
+    "⚠️ يجب رفع البوت إلى مشرف (Admin) لكي يعمل بشكل صحيح.\n\n"
+    "خطوات الرفع:\n"
+    "1. افتح معلومات المجموعة\n"
+    "2. اضغط على المشرفين\n"
+    "3. اضغط إضافة مشرف\n"
+    "4. اختر البوت\n\n"
+    "بعد رفع البوت مشرفًا، ستظهر رسالة الترحيب تلقائيًا."
+)
+
+
+async def send_group_welcome(chat_id: int, chat_title: str | None = None) -> None:
+    db.add_user(chat_id, chat_title, "group")
+    db.update_settings(chat_id, is_active=True, chat_type="group")
+    language = get_subscription_language(chat_id)
+    admin = chat_id == ADMIN_ID
+    await bot.send_message(
+        chat_id,
+        START_MESSAGE,
+        reply_markup=main_keyboard(language, admin, is_group=True),
+        parse_mode="HTML",
+    )
+    await bot.send_message(
+        chat_id,
+        "📍 لكي نبدأ، يرجى ضبط الصفحة الحالية.\n\n"
+        "استخدم زر 📍 ضبط الصفحة الحالية أو اكتب /page متبوعًا برقم الصفحة (مثال: /page 25)",
+        reply_markup=main_keyboard(language, admin, is_group=True),
+    )
+    await bot.send_message(
+        chat_id,
+        "🔢 الآن ضبط عدد صفحات الورد اليومي.\n\n"
+        "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
+        reply_markup=main_keyboard(language, admin, is_group=True),
+    )
+
+
+@dp.my_chat_member()
+async def on_bot_chat_member_updated(event: ChatMemberUpdated):
+    chat = event.chat
+    new_status = event.new_chat_member.status
+    old_status = event.old_chat_member.status
+
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    chat_id = chat.id
+    chat_title = chat.title or chat.username or str(chat_id)
+
+    if new_status in ("left", "kicked"):
+        user = db.get_user(chat_id)
+        if user:
+            db.update_settings(chat_id, is_active=False)
+        return
+
+    if new_status in ("administrator", "creator"):
+        await send_group_welcome(chat_id, chat_title)
+    elif old_status in ("left", "kicked") and new_status == "member":
+        db.add_user(chat_id, chat_title, "group")
+        try:
+            await bot.send_message(chat_id, NOT_ADMIN_GROUP_MESSAGE)
+        except Exception:
+            logger.exception("Failed to send not-admin message to group %s", chat_id)
+
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await ensure_user(message)
     subscription_id = get_subscription_id(message)
     language = get_subscription_language(subscription_id)
+
+    if message.chat.type in ("group", "supergroup"):
+        try:
+            bot_member = await bot.get_chat_member(message.chat.id, bot.id)
+            if bot_member.status not in ("administrator", "creator"):
+                await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+                return
+        except Exception:
+            await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+            return
+
+        admin = message.from_user and message.from_user.id == ADMIN_ID
+        await message.answer(
+            START_MESSAGE,
+            reply_markup=main_keyboard(language, admin, is_group=True),
+            parse_mode="HTML",
+        )
+        await message.answer(
+            "📍 لكي نبدأ، يرجى ضبط الصفحة الحالية.\n\n"
+            "استخدم زر 📍 ضبط الصفحة الحالية أو اكتب /page متبوعًا برقم الصفحة (مثال: /page 25)",
+            reply_markup=main_keyboard(language, admin, is_group=True),
+        )
+        await message.answer(
+            "🔢 الآن ضبط عدد صفحات الورد اليومي.\n\n"
+            "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
+            reply_markup=main_keyboard(language, admin, is_group=True),
+        )
+        return
+
     admin = subscription_id == ADMIN_ID
     await message.answer(
         START_MESSAGE,
@@ -527,15 +638,16 @@ async def help_command(message: types.Message):
     await ensure_user(message)
     subscription_id = get_subscription_id(message)
     language = get_subscription_language(subscription_id)
-    admin = subscription_id == ADMIN_ID
+    is_group = message.chat.type in ("group", "supergroup")
+    admin = message.from_user and message.from_user.id == ADMIN_ID
     if not is_admin(message):
         await message.answer(
             "استخدم الأزرار في الأسفل للتحكم بإعداداتك.\n\n"
             "لأي استفسار تواصل مع المطور.",
-            reply_markup=main_keyboard(language, admin),
+            reply_markup=main_keyboard(language, admin, is_group),
         )
         return
-    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language, admin))
+    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language, admin, is_group))
 
 
 @dp.message(Command("status"))
@@ -550,7 +662,8 @@ async def status(message: types.Message):
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
     setup_text = "مكتمل ✅" if user.get("is_setup", False) else "غير مكتمل ❌"
     khatma_num = user.get("khatma_number", 0)
-    admin = subscription_id == ADMIN_ID
+    admin = message.from_user and message.from_user.id == ADMIN_ID
+    is_group = message.chat.type in ("group", "supergroup")
     await message.answer(
         "📌 إعداداتك الحالية:\n\n"
         f"الحالة: {active_text}\n"
@@ -559,12 +672,15 @@ async def status(message: types.Message):
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
         f"وقت الإرسال: {user['send_time']}",
-        reply_markup=main_keyboard(user["language"], admin),
+        reply_markup=main_keyboard(user["language"], admin, is_group),
     )
 
 
 @dp.message(Command("goal"))
 async def set_goal(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -584,6 +700,9 @@ async def set_goal(message: types.Message):
 
 @dp.message(Command("time"))
 async def set_time(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     send_time = normalize_digits(parts[1].strip()) if len(parts) >= 2 else ""
@@ -602,6 +721,9 @@ async def set_time(message: types.Message):
 
 @dp.message(Command("page"))
 async def set_page(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -625,6 +747,9 @@ async def send_azkar(message: types.Message):
 
 @dp.message(Command("pause"))
 async def pause(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
     db.update_settings(get_subscription_id(message), is_active=False)
     await message.answer("تم إيقاف الورد اليومي مؤقتًا ⏸\nيمكنك استئنافه عبر /resume")
@@ -632,6 +757,9 @@ async def pause(message: types.Message):
 
 @dp.message(Command("resume"))
 async def resume(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
     db.update_settings(get_subscription_id(message), is_active=True)
     await message.answer("تم استئناف الورد اليومي ✅")
@@ -675,8 +803,11 @@ async def status_button(message: types.Message):
 
 @dp.message(F.text.in_([BTN_SET_TIME, "⏰ Set send time"]))
 async def ask_time_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
-    PENDING_ACTIONS[get_subscription_id(message)] = "time"
+    PENDING_ACTIONS[get_subscription_id(message)] = ("time", message.from_user.id)
     await message.answer(
         "⏰ أرسل وقت الإرسال اليومي بصيغة 24 ساعة.\n\n"
         "مثال: 08:00 أو 21:30\n"
@@ -686,8 +817,11 @@ async def ask_time_button(message: types.Message):
 
 @dp.message(F.text.in_([BTN_SET_GOAL, "🔢 Set daily pages"]))
 async def ask_goal_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
-    PENDING_ACTIONS[get_subscription_id(message)] = "goal"
+    PENDING_ACTIONS[get_subscription_id(message)] = ("goal", message.from_user.id)
     await message.answer(
         "🔢 أرسل عدد صفحات الورد اليومي.\n\n"
         "مثال: 1 أو 5 أو 10\n"
@@ -697,8 +831,11 @@ async def ask_goal_button(message: types.Message):
 
 @dp.message(F.text.in_([BTN_SET_PAGE, "📍 Set current page"]))
 async def ask_page_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        return
     await ensure_user(message)
-    PENDING_ACTIONS[get_subscription_id(message)] = "page"
+    PENDING_ACTIONS[get_subscription_id(message)] = ("page", message.from_user.id)
     await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
 
 
@@ -731,8 +868,10 @@ async def change_language(callback: types.CallbackQuery):
     subscription_id = callback.message.chat.id
     db.update_settings(subscription_id, language=language)
     await callback.answer()
+    is_group = callback.message.chat.type in ("group", "supergroup")
+    admin = callback.from_user and callback.from_user.id == ADMIN_ID
     await callback.message.answer(
-        get_text(language, "language_updated"), reply_markup=main_keyboard(language, subscription_id == ADMIN_ID)
+        get_text(language, "language_updated"), reply_markup=main_keyboard(language, admin, is_group)
     )
 
 
@@ -765,17 +904,28 @@ async def handle_khatma_response(callback: types.CallbackQuery):
     db.update_settings(user_id, page=1)
 
 
-@dp.message(F.text, lambda message: message.chat.id in PENDING_ACTIONS)
+@dp.message(F.text, lambda message: get_subscription_id_no_ensure(message) in PENDING_ACTIONS)
 async def handle_pending_input(message: types.Message):
-    await ensure_user(message)
     subscription_id = get_subscription_id(message)
-    action = PENDING_ACTIONS.pop(subscription_id)
+    entry = PENDING_ACTIONS.pop(subscription_id, None)
+    if entry is None:
+        return
+    action, original_user_id = entry
+
+    if message.chat.type in ("group", "supergroup"):
+        if message.from_user and message.from_user.id != original_user_id:
+            PENDING_ACTIONS[subscription_id] = (action, original_user_id)
+            return
+
+    await ensure_user(message)
     text = message.text.strip()
+    is_group = message.chat.type in ("group", "supergroup")
+    admin = message.from_user and message.from_user.id == ADMIN_ID
 
     if action == "time":
         normalized = normalize_digits(text)
         if not TIME_PATTERN.match(normalized):
-            PENDING_ACTIONS[subscription_id] = "time"
+            PENDING_ACTIONS[subscription_id] = ("time", original_user_id)
             await message.answer(
                 "صيغة الوقت غير صحيحة. أرسل الوقت هكذا: 08:00 أو 21:30"
             )
@@ -785,7 +935,7 @@ async def handle_pending_input(message: types.Message):
         await message.answer(
             f"تم ضبط وقت الإرسال اليومي على {normalized} ✅\n"
             "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
-            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
         check_and_mark_setup(subscription_id)
         return
@@ -793,12 +943,12 @@ async def handle_pending_input(message: types.Message):
     if action == "goal":
         goal = parse_positive_int(normalize_digits(text), 1, 604)
         if goal is None:
-            PENDING_ACTIONS[subscription_id] = "goal"
+            PENDING_ACTIONS[subscription_id] = ("goal", original_user_id)
             await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
             return
         db.update_settings(subscription_id, goal=goal)
         await message.answer(
-            f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID)
+            f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group)
         )
         check_and_mark_setup(subscription_id)
         return
@@ -806,18 +956,18 @@ async def handle_pending_input(message: types.Message):
     if action == "page":
         page = parse_positive_int(normalize_digits(text), 1, 604)
         if page is None:
-            PENDING_ACTIONS[subscription_id] = "page"
+            PENDING_ACTIONS[subscription_id] = ("page", original_user_id)
             await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
             return
         db.update_settings(subscription_id, page=page)
         await message.answer(
-            f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID)
+            f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group)
         )
         return
 
     if action == "broadcast":
         if not text:
-            PENDING_ACTIONS[subscription_id] = "broadcast"
+            PENDING_ACTIONS[subscription_id] = ("broadcast", original_user_id)
             await message.answer("الرجاء إرسال نص التعميم:")
             return
         users = db.get_all_active_users()
@@ -833,21 +983,21 @@ async def handle_pending_input(message: types.Message):
             await asyncio.sleep(0.1)
         await message.answer(
             f"✅ تم إرسال التعميم إلى {sent_count} مستخدم.",
-            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
         return
 
     if action == "set_khatma":
         parts = text.split()
         if len(parts) != 2:
-            PENDING_ACTIONS[subscription_id] = "set_khatma"
+            PENDING_ACTIONS[subscription_id] = ("set_khatma", original_user_id)
             await message.answer("الصيغة غير صحيحة. أرسل: رقم_المستخدم رقم_الختمة\nمثال: 123456 20")
             return
         try:
             user_id = int(parts[0])
             khatma_number = int(parts[1])
         except ValueError:
-            PENDING_ACTIONS[subscription_id] = "set_khatma"
+            PENDING_ACTIONS[subscription_id] = ("set_khatma", original_user_id)
             await message.answer("يجب أن يكونا أرقامًا صحيحة. مثال: 123456 20")
             return
         user = db.get_user(user_id)
@@ -857,9 +1007,13 @@ async def handle_pending_input(message: types.Message):
         db.update_settings(user_id, khatma_number=khatma_number)
         await message.answer(
             f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}",
-            reply_markup=main_keyboard(get_subscription_language(subscription_id), subscription_id == ADMIN_ID),
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
         return
+
+
+def get_subscription_id_no_ensure(message: types.Message) -> int:
+    return message.chat.id
 
 
 @dp.message(Command("admin_stats"), F.from_user.id == ADMIN_ID)
@@ -886,7 +1040,7 @@ async def broadcast(message: types.Message):
             logger.exception("Broadcast failed for user %s", user["user_id"])
         await asyncio.sleep(0.1)
 
-    await message.answer(f"✅ تم إرسال التعميم إلى {sent_count} مستخدم.")
+    await message.answer(f"✅ تم إرسال التعميم إلى {sent_count} مشترك.")
 
 
 @dp.message(Command("admin_send_dua"), F.from_user.id == ADMIN_ID)
@@ -918,13 +1072,41 @@ async def set_khatma_count(message: types.Message):
     await message.answer(f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}")
 
 
+@dp.message(F.text.in_([BTN_ADMIN_STATS, "📊 Statistics"]))
+async def admin_stats_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_BROADCAST, "📢 Broadcast"]))
+async def admin_broadcast_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = ("broadcast", message.from_user.id)
+    await message.answer("📢 أرسل نص التعميم الذي تريد إرساله لجميع المشتركين:")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count"]))
+async def admin_set_khatma_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = ("set_khatma", message.from_user.id)
+    await message.answer("🔢 أرسل رقم المستخدم ورقم الختمة مفصولين بمسافة.\nمثال: 123456 20")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All"]))
+async def admin_send_dua_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await send_dua_to_all()
+    await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
+
+
 @dp.message(F.text, F.chat.type == "private")
-async def fallback(message: types.Message):
+async def fallback_private(message: types.Message):
     await ensure_user(message)
     subscription_id = get_subscription_id(message)
-    if subscription_id in PENDING_ACTIONS:
-        await handle_pending_input(message)
-        return
     if message.text.strip() in ALL_BUTTON_TEXTS:
         return
     admin = subscription_id == ADMIN_ID
@@ -943,35 +1125,9 @@ async def fallback(message: types.Message):
     )
 
 
-@dp.message(F.text.in_([BTN_ADMIN_STATS, "📊 Statistics"]))
-async def admin_stats_button(message: types.Message):
-    if not is_admin(message):
-        return
-    await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
-
-
-@dp.message(F.text.in_([BTN_ADMIN_BROADCAST, "📢 Broadcast"]))
-async def admin_broadcast_button(message: types.Message):
-    if not is_admin(message):
-        return
-    PENDING_ACTIONS[get_subscription_id(message)] = "broadcast"
-    await message.answer("📢 أرسل نص التعميم الذي تريد إرساله لجميع المشتركين:")
-
-
-@dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count"]))
-async def admin_set_khatma_button(message: types.Message):
-    if not is_admin(message):
-        return
-    PENDING_ACTIONS[get_subscription_id(message)] = "set_khatma"
-    await message.answer("🔢 أرسل رقم المستخدم ورقم الختمة مفصولين بمسافة.\nمثال: 123456 20")
-
-
-@dp.message(F.text.in_([BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All"]))
-async def admin_send_dua_button(message: types.Message):
-    if not is_admin(message):
-        return
-    await send_dua_to_all()
-    await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
+@dp.message(F.text, F.chat.type.in_({"group", "supergroup"}))
+async def fallback_group(message: types.Message):
+    pass
 
 
 async def set_bot_commands() -> None:
@@ -1042,7 +1198,7 @@ async def main() -> None:
         scheduler.start()
 
         logger.info("Quran bot started")
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, allowed_updates=[UpdateType.MESSAGE, UpdateType.CALLBACK_QUERY, UpdateType.MY_CHAT_MEMBER])
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
