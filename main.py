@@ -330,20 +330,25 @@ async def fallback(message: types.Message):
 
 async def main() -> None:
     try:
-        bot_info = await bot.get_me()
-        logger.info("Authorized as @%s", bot_info.username)
-    except TelegramUnauthorizedError as exc:
-        raise RuntimeError(
-            "Telegram rejected BOT_TOKEN as Unauthorized. Generate a new token from "
-            "@BotFather, update your .env BOT_TOKEN, then run python main.py again."
-        ) from exc
+        try:
+            bot_info = await bot.get_me()
+            logger.info("Authorized as @%s", bot_info.username)
+        except TelegramUnauthorizedError as exc:
+            raise RuntimeError(
+                "Telegram rejected BOT_TOKEN as Unauthorized. Generate a new token from "
+                "@BotFather, update your .env BOT_TOKEN, then run python main.py again."
+            ) from exc
 
-    scheduler.add_job(check_due_daily_quran, "interval", minutes=1, max_instances=1)
-    scheduler.add_job(send_dua_to_all, "interval", hours=8, max_instances=1)
-    scheduler.start()
+        scheduler.add_job(check_due_daily_quran, "interval", minutes=1, max_instances=1)
+        scheduler.add_job(send_dua_to_all, "interval", hours=8, max_instances=1)
+        scheduler.start()
 
-    logger.info("Quran bot started")
-    await dp.start_polling(bot)
+        logger.info("Quran bot started")
+        await dp.start_polling(bot)
+    finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        await bot.session.close()
 
 
 if __name__ == "__main__":
