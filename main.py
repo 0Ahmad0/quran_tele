@@ -14,6 +14,7 @@ from aiogram.exceptions import (
     TelegramUnauthorizedError,
 )
 from aiogram.filters import Command
+from aiohttp import web
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -46,6 +47,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 db = DBManager()
 scheduler = AsyncIOScheduler(timezone=CHECK_TIMEZONE)
+health_runner: web.AppRunner | None = None
 
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -132,6 +134,27 @@ async def ensure_user(message: types.Message) -> None:
     user = message.from_user
     if user:
         db.add_user(user.id, user.username)
+
+
+async def health_check(request: web.Request) -> web.Response:
+    return web.json_response({"status": "ok", "service": "quran-tele"})
+
+
+async def start_health_server() -> web.AppRunner | None:
+    port = os.getenv("PORT")
+    if not port:
+        return None
+
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(port))
+    await site.start()
+    logger.info("Health server started on port %s", port)
+    return runner
 
 
 async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
@@ -530,6 +553,9 @@ async def main() -> None:
                 "@BotFather, update your .env BOT_TOKEN, then run python main.py again."
             ) from exc
 
+        global health_runner
+        health_runner = await start_health_server()
+
         scheduler.add_job(
             check_due_daily_quran, "interval", seconds=20, max_instances=1
         )
@@ -541,6 +567,8 @@ async def main() -> None:
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
+        if health_runner:
+            await health_runner.cleanup()
         await bot.session.close()
 
 
