@@ -61,6 +61,8 @@ BTN_SET_PAGE = "📍 ضبط الصفحة الحالية"
 BTN_PAUSE = "⏸ إيقاف مؤقت"
 BTN_RESUME = "▶️ استئناف"
 BTN_LANGUAGE = "🌐 تغيير اللغة"
+BTN_READ_KHATMA = "✅ قرأت الختمة"
+BTN_NOT_READ_KHATMA = "❌ لم أقرأ الختمة"
 
 BUTTON_ALIASES = {
     BTN_SEND_NOW: "send_now",
@@ -81,6 +83,8 @@ BUTTON_ALIASES = {
     "▶️ Resume": "resume",
     BTN_LANGUAGE: "language",
     "🌐 Change language": "language",
+    BTN_READ_KHATMA: "read_khatma",
+    BTN_NOT_READ_KHATMA: "not_read_khatma",
 }
 
 PENDING_ACTIONS: dict[int, str] = {}
@@ -98,6 +102,8 @@ TEXTS = {
         "language": BTN_LANGUAGE,
         "choose_language": "🌐 اختر اللغة / Choose language",
         "language_updated": "تم تغيير اللغة إلى العربية ✅",
+        "read_khatma": BTN_READ_KHATMA,
+        "not_read_khatma": BTN_NOT_READ_KHATMA,
     },
     "en": {
         "send_now": "📖 Send wird now",
@@ -111,6 +117,8 @@ TEXTS = {
         "language": "🌐 Change language",
         "choose_language": "🌐 Choose language / اختر اللغة",
         "language_updated": "Language changed to English ✅",
+        "read_khatma": "✅ I read the Khatma",
+        "not_read_khatma": "❌ I didn't read the Khatma",
     },
 }
 
@@ -154,6 +162,46 @@ def language_keyboard() -> types.InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+START_MESSAGE = """
+رفيقك الذكي للمحافظة على وردك اليومي من القرآن الكريم.
+
+في زحمة الحياة وكثرة المشاغل، قد ننسى وردنا أو نؤجله، فجاء هذا البوت ليكون تذكيرًا لطيفًا ورفيقًا ثابتًا يعينك على الاستمرار مع كتاب الله.
+
+✨ أهم المميزات:
+
+📖 إرسال ورد القرآن يوميًا تلقائيًا
+يصلك وردك في الوقت الذي تختاره دون الحاجة للتذكير اليدوي.
+
+⏰ جدولة مرنة
+حدد وقت الإرسال المناسب لك، صباحًا أو مساءً، والبوت يتكفل بالباقي.
+
+🔢 ورد يناسبك
+اختر عدد الصفحات اليومية حسب طاقتك وجدولك.
+
+📍 متابعة تلقائية للختمة
+البوت يعرف آخر صفحة وصلت إليها ويكمل منها مباشرة.
+
+🖼 صور واضحة للصفحات
+للقراءة السريعة والمريحة من داخل Telegram.
+
+📄 تحويل تلقائي إلى PDF
+إذا كان الورد أكثر من 10 صفحات، يتم تجهيزه كملف PDF مرتب وسهل التصفح.
+
+🤲 أذكار وأدعية بضغطة زر
+احصل على دعاء قصير أو ذكر في أي وقت.
+
+🎉 تهنئة عند ختم القرآن
+وعند إتمام الختمة يبدأ البوت معك ختمة جديدة بإذن الله.
+
+👨‍💻 المطور:
+تم تطوير البوت بواسطة م.أحمد الحريري، بعناية واهتمام ليكون أداة نافعة لخدمة كتاب الله ومساعدة المسلمين على الثبات على الورد اليومي.
+
+نسأل الله أن يجعله صدقة جارية وأن ينفع به كل من استخدمه وشاركه.
+
+ابدأ الآن، واجعل القرآن رفيق يومك 🌿
+""".strip()
 
 
 HELP_TEXT = """
@@ -219,15 +267,6 @@ def get_subscription_language(subscription_id: int) -> str:
     return "ar"
 
 
-async def get_readers_count(chat_id: int) -> int:
-    if chat_id < 0:
-        try:
-            return await bot.get_chat_member_count(chat_id)
-        except Exception:
-            logger.exception("Failed to get chat member count for chat %s", chat_id)
-    return db.count_active_users()
-
-
 async def health_check(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "service": "quran-tele"})
 
@@ -252,13 +291,13 @@ async def start_health_server() -> web.AppRunner | None:
 async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     pages, is_finish = get_pages_logic(current_page, goal)
     language = get_subscription_language(user_id)
-    active_readers = await get_readers_count(user_id)
     total_completed_khatmas = db.count_total_completed_khatmas()
+    total_khatma_readers = db.count_total_khatma_readers()
     caption = build_wird_caption(
         start_page=pages[0],
         end_page=pages[-1],
         total_completed_khatmas=total_completed_khatmas,
-        active_readers=active_readers,
+        total_khatma_readers=total_khatma_readers,
         now=datetime.now(scheduler.timezone),
         language=language,
     )
@@ -302,11 +341,26 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 await bot.send_media_group(user_id, media)
 
         if is_finish:
+            khatma_keyboard = types.InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        types.InlineKeyboardButton(
+                            text=get_text(language, "read_khatma"),
+                            callback_data="khatma:read",
+                        ),
+                        types.InlineKeyboardButton(
+                            text=get_text(language, "not_read_khatma"),
+                            callback_data="khatma:not_read",
+                        ),
+                    ]
+                ]
+            )
             await bot.send_message(
                 user_id,
                 "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
                 "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
-                "سنبدأ ختمة جديدة في الورد القادم بإذن الله.",
+                "هل قرأت الختمة كاملة؟",
+                reply_markup=khatma_keyboard,
             )
             db.increment_completed_khatmas(user_id)
             db.update_settings(user_id, page=1)
@@ -383,12 +437,18 @@ async def start(message: types.Message):
     await ensure_user(message)
     language = get_subscription_language(get_subscription_id(message))
     await message.answer(
-        "تم تفعيل اشتراكك في ورد القرآن اليومي ✅\n\n"
-        "الإعدادات الافتراضية:\n"
-        "• الورد: صفحة واحدة يوميًا\n"
-        "• وقت الإرسال: 08:00\n"
-        "• صفحة البداية: 1\n\n"
-        "استخدم الأزرار بالأسفل أو /help لعرض كل الأوامر.",
+        START_MESSAGE,
+        reply_markup=main_keyboard(language),
+        parse_mode="HTML",
+    )
+    await message.answer(
+        "🔢 لكي نبدأ، يرجى ضبط عدد صفحات الورد اليومي.\n\n"
+        "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
+        reply_markup=main_keyboard(language),
+    )
+    await message.answer(
+        "⏰ الآن ضبط وقت الإرسال اليومي.\n\n"
+        "استخدم زر ⏰ ضبط وقت الإرسال أو اكتب /time متبوعًا بالوقت (مثال: /time 08:00)",
         reply_markup=main_keyboard(language),
     )
 
@@ -397,6 +457,13 @@ async def start(message: types.Message):
 async def help_command(message: types.Message):
     await ensure_user(message)
     language = get_subscription_language(get_subscription_id(message))
+    if not is_admin(message):
+        await message.answer(
+            "استخدم الأزرار في الأسفل للتحكم بإعداداتك.\n\n"
+            "لأي استفسار تواصل مع المطور.",
+            reply_markup=main_keyboard(language),
+        )
+        return
     await message.answer(HELP_TEXT, reply_markup=main_keyboard(language))
 
 
@@ -586,6 +653,31 @@ async def change_language(callback: types.CallbackQuery):
     )
 
 
+@dp.callback_query(F.data.startswith("khatma:"))
+async def handle_khatma_response(callback: types.CallbackQuery):
+    action = callback.data.split(":", 1)[1]
+    user_id = callback.message.chat.id
+
+    if action == "read":
+        db.increment_completed_khatmas(user_id)
+        db.increment_khatma_read_count(user_id)
+        await callback.answer("جزاكم الله خيرًا! تم تسجيل ختمتك ✅")
+        await callback.message.edit_text(
+            "🎉 تم تسجيل ختمتك بحمد الله!\n\n"
+            "اللهم تقبل منا ومنكم صالح الأعمال.\n\n"
+            "سنبدأ ختمة جديدة في الورد القادم بإذن الله."
+        )
+    else:
+        await callback.answer("تم تسجيل أنك لم تقرأ الختمة")
+        await callback.message.edit_text(
+            "📝 تم تسجيل أنك لم تقرأ الختمة.\n\n"
+            "لا بأس، يمكنك قراءتها لاحقًا إن شاء الله.\n\n"
+            "سنبدأ ختمة جديدة في الورد القادم بإذن الله."
+        )
+
+    db.update_settings(user_id, page=1)
+
+
 @dp.message(F.text, lambda message: message.chat.id in PENDING_ACTIONS)
 async def handle_pending_input(message: types.Message):
     await ensure_user(message)
@@ -666,10 +758,26 @@ async def admin_send_dua(message: types.Message):
     await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
 
 
-@dp.message()
+@dp.message(F.text, F.chat.type == "private")
 async def fallback(message: types.Message):
     await ensure_user(message)
-    await message.answer("لم أفهم الأمر. استخدم /help لعرض الأوامر المتاحة.")
+    subscription_id = get_subscription_id(message)
+    if subscription_id in PENDING_ACTIONS:
+        await handle_pending_input(message)
+        return
+    user = db.get_user(subscription_id)
+    if user and user["daily_goal"] == 1 and user["send_time"] == "08:00" and user["current_page"] == 1:
+        await message.answer(
+            "يرجى ضبط إعداداتك أولاً لاستخدام البوت.\n\n"
+            "استخدم زر 🔢 ضبط عدد الصفحات لضبط عدد الصفحات اليومية.\n"
+            "استخدم زر ⏰ ضبط وقت الإرسال لضبط وقت الإرسال.",
+            reply_markup=main_keyboard(user["language"]),
+        )
+        return
+    await message.answer(
+        "لم أفهم الأمر. استخدم الأزرار في الأسفل أو /help لعرض الأوامر المتاحة.",
+        reply_markup=main_keyboard(get_subscription_language(subscription_id)),
+    )
 
 
 async def main() -> None:

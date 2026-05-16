@@ -125,7 +125,7 @@ def build_wird_caption(
     start_page: int,
     end_page: int,
     total_completed_khatmas: int,
-    active_readers: int,
+    total_khatma_readers: int,
     now: datetime,
     language: str = "ar",
 ) -> str:
@@ -136,7 +136,7 @@ def build_wird_caption(
             f"📿 Completed khatmas: {total_completed_khatmas}\n"
             f"📖 Quran wird for: {format_gregorian_date(now)}\n"
             f"🗓 Hijri date: {format_hijri_date(now)}\n"
-            f"👥 Khatma readers: {active_readers}\n\n"
+            f"👥 Khatma readers: {total_khatma_readers}\n\n"
             f"📚 Juz {juz}\n"
             f"📄 Pages: {start_page} to {end_page}"
         )
@@ -146,7 +146,7 @@ def build_wird_caption(
         f"📿 الختمات المقروءة: {total_completed_khatmas}\n"
         f"📖 ورد القرآن ليوم: {format_gregorian_date(now)}\n"
         f"🗓 {format_hijri_date(now)}\n"
-        f"👥 عدد قرّاء الختمة: {active_readers}\n\n"
+        f"👥 عدد قرّاء الختمة: {total_khatma_readers}\n\n"
         f"📚 الجزء {juz}\n"
         f"📄 الصفحات: من {start_page} إلى {end_page}"
     )

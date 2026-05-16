@@ -32,7 +32,8 @@ class DBManager:
                     is_active INTEGER NOT NULL DEFAULT 1,
                     last_sent_date TEXT,
                     completed_khatmas INTEGER NOT NULL DEFAULT 0,
-                    language TEXT NOT NULL DEFAULT 'ar'
+                    language TEXT NOT NULL DEFAULT 'ar',
+                    khatma_read_count INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -40,6 +41,9 @@ class DBManager:
                 conn, "users", "completed_khatmas", "INTEGER NOT NULL DEFAULT 0"
             )
             self._ensure_column(conn, "users", "language", "TEXT NOT NULL DEFAULT 'ar'")
+            self._ensure_column(
+                conn, "users", "khatma_read_count", "INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, definition: str
@@ -157,5 +161,23 @@ class DBManager:
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(completed_khatmas), 0) AS total FROM users"
+            ).fetchone()
+            return int(row["total"])
+
+    def increment_khatma_read_count(self, user_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET khatma_read_count = khatma_read_count + 1
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            )
+
+    def count_total_khatma_readers(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(khatma_read_count), 0) AS total FROM users"
             ).fetchone()
             return int(row["total"])
