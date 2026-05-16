@@ -60,32 +60,99 @@ BTN_SET_GOAL = "🔢 ضبط عدد الصفحات"
 BTN_SET_PAGE = "📍 ضبط الصفحة الحالية"
 BTN_PAUSE = "⏸ إيقاف مؤقت"
 BTN_RESUME = "▶️ استئناف"
+BTN_LANGUAGE = "🌐 تغيير اللغة"
+
+BUTTON_ALIASES = {
+    BTN_SEND_NOW: "send_now",
+    "📖 Send wird now": "send_now",
+    BTN_AZKAR: "azkar",
+    "🤲 Dua now": "azkar",
+    BTN_STATUS: "status",
+    "📌 My settings": "status",
+    BTN_SET_TIME: "set_time",
+    "⏰ Set send time": "set_time",
+    BTN_SET_GOAL: "set_goal",
+    "🔢 Set daily pages": "set_goal",
+    BTN_SET_PAGE: "set_page",
+    "📍 Set current page": "set_page",
+    BTN_PAUSE: "pause",
+    "⏸ Pause": "pause",
+    BTN_RESUME: "resume",
+    "▶️ Resume": "resume",
+    BTN_LANGUAGE: "language",
+    "🌐 Change language": "language",
+}
 
 PENDING_ACTIONS: dict[int, str] = {}
 
+TEXTS = {
+    "ar": {
+        "send_now": BTN_SEND_NOW,
+        "azkar": BTN_AZKAR,
+        "status": BTN_STATUS,
+        "set_time": BTN_SET_TIME,
+        "set_goal": BTN_SET_GOAL,
+        "set_page": BTN_SET_PAGE,
+        "pause": BTN_PAUSE,
+        "resume": BTN_RESUME,
+        "language": BTN_LANGUAGE,
+        "choose_language": "🌐 اختر اللغة / Choose language",
+        "language_updated": "تم تغيير اللغة إلى العربية ✅",
+    },
+    "en": {
+        "send_now": "📖 Send wird now",
+        "azkar": "🤲 Dua now",
+        "status": "📌 My settings",
+        "set_time": "⏰ Set send time",
+        "set_goal": "🔢 Set daily pages",
+        "set_page": "📍 Set current page",
+        "pause": "⏸ Pause",
+        "resume": "▶️ Resume",
+        "language": "🌐 Change language",
+        "choose_language": "🌐 Choose language / اختر اللغة",
+        "language_updated": "Language changed to English ✅",
+    },
+}
 
-def main_keyboard() -> types.ReplyKeyboardMarkup:
+
+def get_text(language: str, key: str) -> str:
+    return TEXTS.get(language, TEXTS["ar"]).get(key, TEXTS["ar"].get(key, key))
+
+
+def main_keyboard(language: str = "ar") -> types.ReplyKeyboardMarkup:
     return types.ReplyKeyboardMarkup(
         keyboard=[
             [
-                types.KeyboardButton(text=BTN_SEND_NOW),
-                types.KeyboardButton(text=BTN_AZKAR),
+                types.KeyboardButton(text=get_text(language, "send_now")),
+                types.KeyboardButton(text=get_text(language, "azkar")),
             ],
             [
-                types.KeyboardButton(text=BTN_STATUS),
-                types.KeyboardButton(text=BTN_SET_TIME),
+                types.KeyboardButton(text=get_text(language, "status")),
+                types.KeyboardButton(text=get_text(language, "set_time")),
             ],
             [
-                types.KeyboardButton(text=BTN_SET_GOAL),
-                types.KeyboardButton(text=BTN_SET_PAGE),
+                types.KeyboardButton(text=get_text(language, "set_goal")),
+                types.KeyboardButton(text=get_text(language, "set_page")),
             ],
             [
-                types.KeyboardButton(text=BTN_PAUSE),
-                types.KeyboardButton(text=BTN_RESUME),
+                types.KeyboardButton(text=get_text(language, "pause")),
+                types.KeyboardButton(text=get_text(language, "resume")),
             ],
+            [types.KeyboardButton(text=get_text(language, "language"))],
         ],
         resize_keyboard=True,
         input_field_placeholder="اختر من الأزرار أو اكتب أمرًا...",
+    )
+
+
+def language_keyboard() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="العربية 🇸🇦", callback_data="lang:ar"),
+                types.InlineKeyboardButton(text="English 🇬🇧", callback_data="lang:en"),
+            ]
+        ]
     )
 
 
@@ -145,6 +212,13 @@ async def ensure_user(message: types.Message) -> None:
     db.add_user(get_subscription_id(message), get_subscription_name(message))
 
 
+def get_subscription_language(subscription_id: int) -> str:
+    user = db.get_user(subscription_id)
+    if user:
+        return user["language"]
+    return "ar"
+
+
 async def get_readers_count(chat_id: int) -> int:
     if chat_id < 0:
         try:
@@ -177,6 +251,7 @@ async def start_health_server() -> web.AppRunner | None:
 
 async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
     pages, is_finish = get_pages_logic(current_page, goal)
+    language = get_subscription_language(user_id)
     active_readers = await get_readers_count(user_id)
     total_completed_khatmas = db.count_total_completed_khatmas()
     caption = build_wird_caption(
@@ -185,6 +260,7 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
         total_completed_khatmas=total_completed_khatmas,
         active_readers=active_readers,
         now=datetime.now(scheduler.timezone),
+        language=language,
     )
     pdf_file = None
     image_files = []
@@ -305,6 +381,7 @@ async def send_dua_to_all() -> None:
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await ensure_user(message)
+    language = get_subscription_language(get_subscription_id(message))
     await message.answer(
         "تم تفعيل اشتراكك في ورد القرآن اليومي ✅\n\n"
         "الإعدادات الافتراضية:\n"
@@ -312,14 +389,15 @@ async def start(message: types.Message):
         "• وقت الإرسال: 08:00\n"
         "• صفحة البداية: 1\n\n"
         "استخدم الأزرار بالأسفل أو /help لعرض كل الأوامر.",
-        reply_markup=main_keyboard(),
+        reply_markup=main_keyboard(language),
     )
 
 
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
     await ensure_user(message)
-    await message.answer(HELP_TEXT, reply_markup=main_keyboard())
+    language = get_subscription_language(get_subscription_id(message))
+    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language))
 
 
 @dp.message(Command("status"))
@@ -338,7 +416,7 @@ async def status(message: types.Message):
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
         f"وقت الإرسال: {user['send_time']}",
-        reply_markup=main_keyboard(),
+        reply_markup=main_keyboard(user["language"]),
     )
 
 
@@ -430,22 +508,22 @@ async def send_now(message: types.Message):
         await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
 
 
-@dp.message(F.text == BTN_SEND_NOW)
+@dp.message(F.text.in_([BTN_SEND_NOW, "📖 Send wird now"]))
 async def send_now_button(message: types.Message):
     await send_now(message)
 
 
-@dp.message(F.text == BTN_AZKAR)
+@dp.message(F.text.in_([BTN_AZKAR, "🤲 Dua now"]))
 async def azkar_button(message: types.Message):
     await send_azkar(message)
 
 
-@dp.message(F.text == BTN_STATUS)
+@dp.message(F.text.in_([BTN_STATUS, "📌 My settings"]))
 async def status_button(message: types.Message):
     await status(message)
 
 
-@dp.message(F.text == BTN_SET_TIME)
+@dp.message(F.text.in_([BTN_SET_TIME, "⏰ Set send time"]))
 async def ask_time_button(message: types.Message):
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = "time"
@@ -456,7 +534,7 @@ async def ask_time_button(message: types.Message):
     )
 
 
-@dp.message(F.text == BTN_SET_GOAL)
+@dp.message(F.text.in_([BTN_SET_GOAL, "🔢 Set daily pages"]))
 async def ask_goal_button(message: types.Message):
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = "goal"
@@ -467,21 +545,45 @@ async def ask_goal_button(message: types.Message):
     )
 
 
-@dp.message(F.text == BTN_SET_PAGE)
+@dp.message(F.text.in_([BTN_SET_PAGE, "📍 Set current page"]))
 async def ask_page_button(message: types.Message):
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = "page"
     await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
 
 
-@dp.message(F.text == BTN_PAUSE)
+@dp.message(F.text.in_([BTN_PAUSE, "⏸ Pause"]))
 async def pause_button(message: types.Message):
     await pause(message)
 
 
-@dp.message(F.text == BTN_RESUME)
+@dp.message(F.text.in_([BTN_RESUME, "▶️ Resume"]))
 async def resume_button(message: types.Message):
     await resume(message)
+
+
+@dp.message(F.text.in_([BTN_LANGUAGE, "🌐 Change language"]))
+async def language_button(message: types.Message):
+    await ensure_user(message)
+    language = get_subscription_language(get_subscription_id(message))
+    await message.answer(
+        get_text(language, "choose_language"), reply_markup=language_keyboard()
+    )
+
+
+@dp.callback_query(F.data.startswith("lang:"))
+async def change_language(callback: types.CallbackQuery):
+    language = callback.data.split(":", 1)[1]
+    if language not in TEXTS:
+        await callback.answer("Unsupported language", show_alert=True)
+        return
+
+    subscription_id = callback.message.chat.id
+    db.update_settings(subscription_id, language=language)
+    await callback.answer()
+    await callback.message.answer(
+        get_text(language, "language_updated"), reply_markup=main_keyboard(language)
+    )
 
 
 @dp.message(F.text, lambda message: message.chat.id in PENDING_ACTIONS)

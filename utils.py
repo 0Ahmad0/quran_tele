@@ -127,8 +127,20 @@ def build_wird_caption(
     total_completed_khatmas: int,
     active_readers: int,
     now: datetime,
+    language: str = "ar",
 ) -> str:
     juz = get_juz_number(start_page)
+    if language == "en":
+        return (
+            "Peace be upon you 🌿\n\n"
+            f"📿 Completed khatmas: {total_completed_khatmas}\n"
+            f"📖 Quran wird for: {format_gregorian_date(now)}\n"
+            f"🗓 Hijri date: {format_hijri_date(now)}\n"
+            f"👥 Khatma readers: {active_readers}\n\n"
+            f"📚 Juz {juz}\n"
+            f"📄 Pages: {start_page} to {end_page}"
+        )
+
     return (
         "السلام عليكم ورحمة الله وبركاته\n\n"
         f"📿 الختمات المقروءة: {total_completed_khatmas}\n"

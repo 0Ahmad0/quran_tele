@@ -31,13 +31,15 @@ class DBManager:
                     send_time TEXT NOT NULL DEFAULT '08:00',
                     is_active INTEGER NOT NULL DEFAULT 1,
                     last_sent_date TEXT,
-                    completed_khatmas INTEGER NOT NULL DEFAULT 0
+                    completed_khatmas INTEGER NOT NULL DEFAULT 0,
+                    language TEXT NOT NULL DEFAULT 'ar'
                 )
                 """
             )
             self._ensure_column(
                 conn, "users", "completed_khatmas", "INTEGER NOT NULL DEFAULT 0"
             )
+            self._ensure_column(conn, "users", "language", "TEXT NOT NULL DEFAULT 'ar'")
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, definition: str
@@ -67,6 +69,7 @@ class DBManager:
         page: Optional[int] = None,
         is_active: Optional[bool] = None,
         last_sent_date: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> None:
         updates = []
         params = []
@@ -86,6 +89,9 @@ class DBManager:
         if last_sent_date is not None:
             updates.append("last_sent_date = ?")
             params.append(last_sent_date)
+        if language is not None:
+            updates.append("language = ?")
+            params.append(language)
 
         if not updates:
             return
