@@ -65,9 +65,9 @@ BTN_RESUME = "▶️ استئناف"
 BTN_LANGUAGE = "🌐 تغيير اللغة"
 BTN_READ_KHATMA = "✅ قرأت الختمة"
 BTN_NOT_READ_KHATMA = "❌ لم أقرأ الختمة"
+BTN_SET_KHATMA = "🔢 تعيين الختمة"
 BTN_ADMIN_STATS = "📊 إحصائيات"
 BTN_ADMIN_BROADCAST = "📢 تعميم"
-BTN_ADMIN_SET_KHATMA = "🔢 ضبط رقم الختمة"
 BTN_ADMIN_SEND_DUA = "🤲 إرسال دعاء للجميع"
 
 BUTTON_ALIASES = {
@@ -91,12 +91,12 @@ BUTTON_ALIASES = {
     "🌐 Change language": "language",
     BTN_READ_KHATMA: "read_khatma",
     BTN_NOT_READ_KHATMA: "not_read_khatma",
+    BTN_SET_KHATMA: "set_khatma",
+    "🔢 Set Khatma": "set_khatma",
     BTN_ADMIN_STATS: "admin_stats",
     "📊 Statistics": "admin_stats",
     BTN_ADMIN_BROADCAST: "admin_broadcast",
     "📢 Broadcast": "admin_broadcast",
-    BTN_ADMIN_SET_KHATMA: "admin_set_khatma",
-    "🔢 Set Khatma Count": "admin_set_khatma",
     BTN_ADMIN_SEND_DUA: "admin_send_dua",
     "🤲 Send Dua to All": "admin_send_dua",
 }
@@ -118,9 +118,9 @@ TEXTS = {
         "language_updated": "تم تغيير اللغة إلى العربية ✅",
         "read_khatma": BTN_READ_KHATMA,
         "not_read_khatma": BTN_NOT_READ_KHATMA,
+        "set_khatma": BTN_SET_KHATMA,
         "admin_stats": BTN_ADMIN_STATS,
         "admin_broadcast": BTN_ADMIN_BROADCAST,
-        "admin_set_khatma": BTN_ADMIN_SET_KHATMA,
         "admin_send_dua": BTN_ADMIN_SEND_DUA,
     },
     "en": {
@@ -137,9 +137,9 @@ TEXTS = {
         "language_updated": "Language changed to English ✅",
         "read_khatma": "✅ I read the Khatma",
         "not_read_khatma": "❌ I didn't read the Khatma",
+        "set_khatma": "🔢 Set Khatma",
         "admin_stats": "📊 Statistics",
         "admin_broadcast": "📢 Broadcast",
-        "admin_set_khatma": "🔢 Set Khatma Count",
         "admin_send_dua": "🤲 Send Dua to All",
     },
 }
@@ -159,9 +159,9 @@ ALL_BUTTON_TEXTS = [
     BTN_PAUSE, "⏸ Pause",
     BTN_RESUME, "▶️ Resume",
     BTN_LANGUAGE, "🌐 Change language",
+    BTN_SET_KHATMA, "🔢 Set Khatma",
     BTN_ADMIN_STATS, "📊 Statistics",
     BTN_ADMIN_BROADCAST, "📢 Broadcast",
-    BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count",
     BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All",
 ]
 
@@ -184,7 +184,10 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
             types.KeyboardButton(text=get_text(language, "pause")),
             types.KeyboardButton(text=get_text(language, "resume")),
         ],
-        [types.KeyboardButton(text=get_text(language, "language"))],
+        [
+            types.KeyboardButton(text=get_text(language, "set_khatma")),
+            types.KeyboardButton(text=get_text(language, "language")),
+        ],
     ]
     if is_admin_user and not is_group:
         rows.append([
@@ -192,7 +195,6 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
             types.KeyboardButton(text=get_text(language, "admin_broadcast")),
         ])
         rows.append([
-            types.KeyboardButton(text=get_text(language, "admin_set_khatma")),
             types.KeyboardButton(text=get_text(language, "admin_send_dua")),
         ])
     return types.ReplyKeyboardMarkup(
@@ -262,7 +264,8 @@ HELP_TEXT = """
 /status - عرض إعداداتك الحالية
 /goal 5 - ضبط عدد صفحات الورد اليومي
 /time 08:00 - ضبط وقت الإرسال اليومي بنظام 24 ساعة
-/page 1 - ضبط صفحة البداية الحالية
+/page 1 - ضبط الصفحة الحالية
+/khatma 5 - تعيين رقم الختمة الحالية
 /send_now - إرسال ورد اليوم الآن
 /azkar - إرسال دعاء/ذكر الآن
 /dua - إرسال دعاء/ذكر الآن
@@ -272,6 +275,8 @@ HELP_TEXT = """
 أوامر المدير:
 /admin_stats - عدد المشتركين النشطين
 /broadcast النص - إرسال تعميم للجميع
+/admin_send_dua - إرسال دعاء للجميع
+/set_khatma_count معرف_المستخدم رقم_الختمة - ضبط ختمة مستخدم
 """.strip()
 
 
@@ -291,6 +296,28 @@ async def is_group_admin(message: types.Message) -> bool:
         return member.status in ("creator", "administrator")
     except Exception:
         return False
+
+
+async def delete_message_safe(chat_id: int, message_id: int) -> None:
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def cleanup_group_messages(message: types.Message, *response_messages: types.Message, delay: int = 300) -> None:
+    if message.chat.type not in ("group", "supergroup"):
+        return
+    await delete_message_safe(message.chat.id, message.message_id)
+    if response_messages and delay > 0:
+        msg_ids = [msg.message_id for msg in response_messages]
+
+        async def _delete_after_delay():
+            await asyncio.sleep(delay)
+            for msg_id in msg_ids:
+                await delete_message_safe(message.chat.id, msg_id)
+
+        asyncio.create_task(_delete_after_delay())
 
 
 def normalize_digits(value: str) -> str:
@@ -333,9 +360,10 @@ def get_subscription_language(subscription_id: int) -> str:
 
 def check_and_mark_setup(user_id: int) -> None:
     user = db.get_user(user_id)
-    if user and not user.get("is_setup", False):
-        if user["daily_goal"] > 1 and user["send_time"] != "08:00":
+    if user and not user.get("is_setup", 0):
+        if user["daily_goal"] != 1 or user["send_time"] != "08:00":
             db.update_settings(user_id, is_setup=True)
+            db.clear_last_sent_date(user_id)
             language = user["language"]
             is_group = user.get("chat_type", "private") == "group"
             asyncio.create_task(
@@ -551,6 +579,12 @@ async def send_group_welcome(chat_id: int, chat_title: str | None = None) -> Non
         "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
         reply_markup=main_keyboard(language, admin, is_group=True),
     )
+    await bot.send_message(
+        chat_id,
+        "⏰ وأخيرًا، ضبط وقت الإرسال اليومي.\n\n"
+        "استخدم زر ⏰ ضبط وقت الإرسال أو اكتب /time متبوعًا بالوقت (مثال: /time 21:00)",
+        reply_markup=main_keyboard(language, admin, is_group=True),
+    )
 
 
 @dp.my_chat_member()
@@ -573,8 +607,11 @@ async def on_bot_chat_member_updated(event: ChatMemberUpdated):
 
     if new_status in ("administrator", "creator"):
         await send_group_welcome(chat_id, chat_title)
-    elif old_status in ("left", "kicked") and new_status == "member":
+        return
+
+    if new_status == "member":
         db.add_user(chat_id, chat_title, "group")
+        db.update_settings(chat_id, is_active=True, chat_type="group")
         try:
             await bot.send_message(chat_id, NOT_ADMIN_GROUP_MESSAGE)
         except Exception:
@@ -591,28 +628,36 @@ async def start(message: types.Message):
         try:
             bot_member = await bot.get_chat_member(message.chat.id, bot.id)
             if bot_member.status not in ("administrator", "creator"):
-                await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+                resp1 = await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+                await cleanup_group_messages(message, resp1)
                 return
         except Exception:
-            await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+            resp1 = await message.answer(NOT_ADMIN_GROUP_MESSAGE)
+            await cleanup_group_messages(message, resp1)
             return
 
         admin = message.from_user and message.from_user.id == ADMIN_ID
-        await message.answer(
+        resp1 = await message.answer(
             START_MESSAGE,
             reply_markup=main_keyboard(language, admin, is_group=True),
             parse_mode="HTML",
         )
-        await message.answer(
+        resp2 = await message.answer(
             "📍 لكي نبدأ، يرجى ضبط الصفحة الحالية.\n\n"
             "استخدم زر 📍 ضبط الصفحة الحالية أو اكتب /page متبوعًا برقم الصفحة (مثال: /page 25)",
             reply_markup=main_keyboard(language, admin, is_group=True),
         )
-        await message.answer(
+        resp3 = await message.answer(
             "🔢 الآن ضبط عدد صفحات الورد اليومي.\n\n"
             "استخدم زر 🔢 ضبط عدد الصفحات أو اكتب /goal متبوعًا بالعدد (مثال: /goal 5)",
             reply_markup=main_keyboard(language, admin, is_group=True),
         )
+        resp4 = await message.answer(
+            "⏰ وأخيرًا، ضبط وقت الإرسال اليومي.\n\n"
+            "استخدم زر ⏰ ضبط وقت الإرسال أو اكتب /time متبوعًا بالوقت (مثال: /time 21:00)",
+            reply_markup=main_keyboard(language, admin, is_group=True),
+        )
+        await cleanup_group_messages(message, resp1, resp2, resp3, resp4)
         return
 
     admin = subscription_id == ADMIN_ID
@@ -640,14 +685,13 @@ async def help_command(message: types.Message):
     language = get_subscription_language(subscription_id)
     is_group = message.chat.type in ("group", "supergroup")
     admin = message.from_user and message.from_user.id == ADMIN_ID
-    if not is_admin(message):
-        await message.answer(
-            "استخدم الأزرار في الأسفل للتحكم بإعداداتك.\n\n"
-            "لأي استفسار تواصل مع المطور.",
-            reply_markup=main_keyboard(language, admin, is_group),
-        )
-        return
-    await message.answer(HELP_TEXT, reply_markup=main_keyboard(language, admin, is_group))
+    resp = await message.answer(
+        HELP_TEXT if is_admin(message) else
+        "استخدم الأزرار في الأسفل للتحكم بإعداداتك.\n\n"
+        "لأي استفسار تواصل مع المطور.",
+        reply_markup=main_keyboard(language, admin, is_group),
+    )
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(Command("status"))
@@ -656,15 +700,16 @@ async def status(message: types.Message):
     subscription_id = get_subscription_id(message)
     user = db.get_user(subscription_id)
     if not user:
-        await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
+        resp = await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
+        await cleanup_group_messages(message, resp)
         return
 
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
-    setup_text = "مكتمل ✅" if user.get("is_setup", False) else "غير مكتمل ❌"
+    setup_text = "مكتمل ✅" if user.get("is_setup", 0) else "غير مكتمل ❌"
     khatma_num = user.get("khatma_number", 0)
     admin = message.from_user and message.from_user.id == ADMIN_ID
     is_group = message.chat.type in ("group", "supergroup")
-    await message.answer(
+    resp = await message.answer(
         "📌 إعداداتك الحالية:\n\n"
         f"الحالة: {active_text}\n"
         f"الإعداد: {setup_text}\n"
@@ -674,27 +719,32 @@ async def status(message: types.Message):
         f"وقت الإرسال: {user['send_time']}",
         reply_markup=main_keyboard(user["language"], admin, is_group),
     )
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(Command("goal"))
 async def set_goal(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("اكتب عدد الصفحات هكذا: /goal 5")
+        resp = await message.answer("اكتب عدد الصفحات هكذا: /goal 5")
+        await cleanup_group_messages(message, resp)
         return
 
     goal = parse_positive_int(parts[1].strip(), 1, 604)
     if goal is None:
-        await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
+        resp = await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
+        await cleanup_group_messages(message, resp)
         return
 
     subscription_id = get_subscription_id(message)
     db.update_settings(subscription_id, goal=goal)
-    await message.answer(f"تم ضبط الورد اليومي على {goal} صفحة ✅")
+    resp = await message.answer(f"تم ضبط الورد اليومي على {goal} صفحة ✅")
+    await cleanup_group_messages(message, resp)
     check_and_mark_setup(subscription_id)
 
 
@@ -702,20 +752,23 @@ async def set_goal(message: types.Message):
 async def set_time(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     send_time = normalize_digits(parts[1].strip()) if len(parts) >= 2 else ""
     if not TIME_PATTERN.match(send_time):
-        await message.answer("اكتب الوقت بصيغة 24 ساعة هكذا: /time 08:00")
+        resp = await message.answer("اكتب الوقت بصيغة 24 ساعة هكذا: /time 08:00")
+        await cleanup_group_messages(message, resp)
         return
     subscription_id = get_subscription_id(message)
     db.update_settings(subscription_id, send_time=send_time)
     db.clear_last_sent_date(subscription_id)
-    await message.answer(
+    resp = await message.answer(
         f"تم ضبط وقت الإرسال اليومي على {send_time} ✅\n"
         "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة."
     )
+    await cleanup_group_messages(message, resp)
     check_and_mark_setup(subscription_id)
 
 
@@ -723,46 +776,84 @@ async def set_time(message: types.Message):
 async def set_page(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("اكتب رقم الصفحة هكذا: /page 25")
+        resp = await message.answer("اكتب رقم الصفحة هكذا: /page 25")
+        await cleanup_group_messages(message, resp)
         return
 
     page = parse_positive_int(parts[1].strip(), 1, 604)
     if page is None:
-        await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
+        resp = await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
+        await cleanup_group_messages(message, resp)
         return
 
     db.update_settings(get_subscription_id(message), page=page)
-    await message.answer(f"تم ضبط صفحة البداية الحالية على {page} ✅")
+    resp = await message.answer(f"تم ضبط صفحة البداية الحالية على {page} ✅")
+    await cleanup_group_messages(message, resp)
+
+
+@dp.message(Command("khatma"))
+async def set_khatma(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
+        return
+    await ensure_user(message)
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        resp = await message.answer(
+            "اكتب رقم الختمة هكذا: /khatma 5\n\n"
+            "رقم الختمة هو رقم الختمة الحالية التي تقرأ فيها."
+        )
+        await cleanup_group_messages(message, resp)
+        return
+
+    khatma_num = parse_positive_int(parts[1].strip(), 1, 9999)
+    if khatma_num is None:
+        resp = await message.answer("رقم الختمة يجب أن يكون رقمًا بين 1 و 9999.")
+        await cleanup_group_messages(message, resp)
+        return
+
+    subscription_id = get_subscription_id(message)
+    db.update_settings(subscription_id, khatma_number=khatma_num)
+    resp = await message.answer(f"✅ تم تعيين رقم الختمة إلى {khatma_num}")
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(Command("azkar", "dua"))
 async def send_azkar(message: types.Message):
     await ensure_user(message)
-    await message.answer(f"🤲 ذكر ودعاء\n\n{choice(DUAS)}")
+    resp = await message.answer(f"🤲 ذكر ودعاء\n\n{choice(DUAS)}")
+    await cleanup_group_messages(message, resp, delay=120)
 
 
 @dp.message(Command("pause"))
 async def pause(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     db.update_settings(get_subscription_id(message), is_active=False)
-    await message.answer("تم إيقاف الورد اليومي مؤقتًا ⏸\nيمكنك استئنافه عبر /resume")
+    resp = await message.answer("تم إيقاف الورد اليومي مؤقتًا ⏸\nيمكنك استئنافه عبر /resume")
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(Command("resume"))
 async def resume(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     db.update_settings(get_subscription_id(message), is_active=True)
-    await message.answer("تم استئناف الورد اليومي ✅")
+    db.clear_last_sent_date(get_subscription_id(message))
+    resp = await message.answer("تم استئناف الورد اليومي ✅")
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(Command("send_now"))
@@ -771,7 +862,8 @@ async def send_now(message: types.Message):
     subscription_id = get_subscription_id(message)
     user = db.get_user(subscription_id)
     if not user:
-        await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
+        resp = await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
+        await cleanup_group_messages(message, resp)
         return
 
     loading_msg = await message.answer("جاري تجهيز وردك الآن... ⏳")
@@ -783,7 +875,10 @@ async def send_now(message: types.Message):
     except Exception:
         pass
     if not sent:
-        await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
+        resp = await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
+        await cleanup_group_messages(message, resp)
+    else:
+        await delete_message_safe(message.chat.id, message.message_id)
 
 
 @dp.message(F.text.in_([BTN_SEND_NOW, "📖 Send wird now"]))
@@ -805,38 +900,60 @@ async def status_button(message: types.Message):
 async def ask_time_button(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = ("time", message.from_user.id)
-    await message.answer(
+    resp = await message.answer(
         "⏰ أرسل وقت الإرسال اليومي بصيغة 24 ساعة.\n\n"
         "مثال: 08:00 أو 21:30\n"
         "إذا كان الوقت قد حان أو مرّ اليوم، سيرسل البوت خلال أقل من دقيقة."
     )
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(F.text.in_([BTN_SET_GOAL, "🔢 Set daily pages"]))
 async def ask_goal_button(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = ("goal", message.from_user.id)
-    await message.answer(
+    resp = await message.answer(
         "🔢 أرسل عدد صفحات الورد اليومي.\n\n"
         "مثال: 1 أو 5 أو 10\n"
         "إذا كان أكثر من 10 صفحات سيتم تجهيزه كملف PDF."
     )
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(F.text.in_([BTN_SET_PAGE, "📍 Set current page"]))
 async def ask_page_button(message: types.Message):
     if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
         await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
         return
     await ensure_user(message)
     PENDING_ACTIONS[get_subscription_id(message)] = ("page", message.from_user.id)
-    await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
+    resp = await message.answer("📍 أرسل رقم الصفحة الحالية بين 1 و 604.\n\nمثال: 25")
+    await cleanup_group_messages(message, resp)
+
+
+@dp.message(F.text.in_([BTN_SET_KHATMA, "🔢 Set Khatma"]))
+async def ask_khatma_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
+        return
+    await ensure_user(message)
+    PENDING_ACTIONS[get_subscription_id(message)] = ("set_khatma_user", message.from_user.id)
+    resp = await message.answer(
+        "🔢 أرسل رقم الختمة الحالية.\n\n"
+        "رقم الختمة هو رقم الختمة التي تقرأ فيها الآن.\n"
+        "مثال: 5"
+    )
+    await cleanup_group_messages(message, resp)
 
 
 @dp.message(F.text.in_([BTN_PAUSE, "⏸ Pause"]))
@@ -916,6 +1033,7 @@ async def handle_pending_input(message: types.Message):
         if message.from_user and message.from_user.id != original_user_id:
             PENDING_ACTIONS[subscription_id] = (action, original_user_id)
             return
+        await delete_message_safe(message.chat.id, message.message_id)
 
     await ensure_user(message)
     text = message.text.strip()
@@ -926,17 +1044,19 @@ async def handle_pending_input(message: types.Message):
         normalized = normalize_digits(text)
         if not TIME_PATTERN.match(normalized):
             PENDING_ACTIONS[subscription_id] = ("time", original_user_id)
-            await message.answer(
+            resp = await message.answer(
                 "صيغة الوقت غير صحيحة. أرسل الوقت هكذا: 08:00 أو 21:30"
             )
+            await cleanup_group_messages(message, resp)
             return
         db.update_settings(subscription_id, send_time=normalized)
         db.clear_last_sent_date(subscription_id)
-        await message.answer(
+        resp = await message.answer(
             f"تم ضبط وقت الإرسال اليومي على {normalized} ✅\n"
             "إذا كان الوقت قد حان أو مرّ اليوم، سيتم الإرسال خلال أقل من دقيقة.",
             reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
+        await cleanup_group_messages(message, resp)
         check_and_mark_setup(subscription_id)
         return
 
@@ -944,12 +1064,14 @@ async def handle_pending_input(message: types.Message):
         goal = parse_positive_int(normalize_digits(text), 1, 604)
         if goal is None:
             PENDING_ACTIONS[subscription_id] = ("goal", original_user_id)
-            await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
+            resp = await message.answer("عدد الصفحات يجب أن يكون رقمًا بين 1 و 604.")
+            await cleanup_group_messages(message, resp)
             return
         db.update_settings(subscription_id, goal=goal)
-        await message.answer(
+        resp = await message.answer(
             f"تم ضبط الورد اليومي على {goal} صفحة ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group)
         )
+        await cleanup_group_messages(message, resp)
         check_and_mark_setup(subscription_id)
         return
 
@@ -957,15 +1079,35 @@ async def handle_pending_input(message: types.Message):
         page = parse_positive_int(normalize_digits(text), 1, 604)
         if page is None:
             PENDING_ACTIONS[subscription_id] = ("page", original_user_id)
-            await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
+            resp = await message.answer("رقم الصفحة يجب أن يكون بين 1 و 604.")
+            await cleanup_group_messages(message, resp)
             return
         db.update_settings(subscription_id, page=page)
-        await message.answer(
+        resp = await message.answer(
             f"تم ضبط صفحة البداية الحالية على {page} ✅", reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group)
         )
+        await cleanup_group_messages(message, resp)
+        return
+
+    if action == "set_khatma_user":
+        khatma_num = parse_positive_int(normalize_digits(text), 1, 9999)
+        if khatma_num is None:
+            PENDING_ACTIONS[subscription_id] = ("set_khatma_user", original_user_id)
+            resp = await message.answer("رقم الختمة يجب أن يكون بين 1 و 9999.")
+            await cleanup_group_messages(message, resp)
+            return
+        db.update_settings(subscription_id, khatma_number=khatma_num)
+        resp = await message.answer(
+            f"✅ تم تعيين رقم الختمة إلى {khatma_num}",
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
+        )
+        await cleanup_group_messages(message, resp)
         return
 
     if action == "broadcast":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
         if not text:
             PENDING_ACTIONS[subscription_id] = ("broadcast", original_user_id)
             await message.answer("الرجاء إرسال نص التعميم:")
@@ -981,34 +1123,42 @@ async def handle_pending_input(message: types.Message):
             except Exception:
                 logger.exception("Broadcast failed for user %s", user["user_id"])
             await asyncio.sleep(0.1)
-        await message.answer(
+        resp = await message.answer(
             f"✅ تم إرسال التعميم إلى {sent_count} مستخدم.",
             reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
+        await cleanup_group_messages(message, resp)
         return
 
     if action == "set_khatma":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
         parts = text.split()
         if len(parts) != 2:
             PENDING_ACTIONS[subscription_id] = ("set_khatma", original_user_id)
-            await message.answer("الصيغة غير صحيحة. أرسل: رقم_المستخدم رقم_الختمة\nمثال: 123456 20")
+            resp = await message.answer("الصيغة غير صحيحة. أرسل: رقم_المستخدم رقم_الختمة\nمثال: 123456 20")
+            await cleanup_group_messages(message, resp)
             return
         try:
             user_id = int(parts[0])
             khatma_number = int(parts[1])
         except ValueError:
             PENDING_ACTIONS[subscription_id] = ("set_khatma", original_user_id)
-            await message.answer("يجب أن يكونا أرقامًا صحيحة. مثال: 123456 20")
+            resp = await message.answer("يجب أن يكونا أرقامًا صحيحة. مثال: 123456 20")
+            await cleanup_group_messages(message, resp)
             return
         user = db.get_user(user_id)
         if not user:
-            await message.answer("المستخدم غير موجود.")
+            resp = await message.answer("المستخدم غير موجود.")
+            await cleanup_group_messages(message, resp)
             return
         db.update_settings(user_id, khatma_number=khatma_number)
-        await message.answer(
+        resp = await message.answer(
             f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}",
             reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
         )
+        await cleanup_group_messages(message, resp)
         return
 
 
@@ -1087,14 +1237,6 @@ async def admin_broadcast_button(message: types.Message):
     await message.answer("📢 أرسل نص التعميم الذي تريد إرساله لجميع المشتركين:")
 
 
-@dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set Khatma Count"]))
-async def admin_set_khatma_button(message: types.Message):
-    if not is_admin(message):
-        return
-    PENDING_ACTIONS[get_subscription_id(message)] = ("set_khatma", message.from_user.id)
-    await message.answer("🔢 أرسل رقم المستخدم ورقم الختمة مفصولين بمسافة.\nمثال: 123456 20")
-
-
 @dp.message(F.text.in_([BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All"]))
 async def admin_send_dua_button(message: types.Message):
     if not is_admin(message):
@@ -1137,6 +1279,7 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="goal", description="ضبط عدد الصفحات /goal 5"),
         types.BotCommand(command="time", description="ضبط وقت الإرسال /time 08:00"),
         types.BotCommand(command="page", description="ضبط الصفحة الحالية /page 25"),
+        types.BotCommand(command="khatma", description="تعيين رقم الختمة /khatma 5"),
         types.BotCommand(command="send_now", description="إرسال ورد اليوم الآن"),
         types.BotCommand(command="azkar", description="ذكر أو دعاء الآن"),
         types.BotCommand(command="pause", description="إيقاف الإرسال مؤقتاً"),
@@ -1148,6 +1291,7 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="goal", description="Set daily pages /goal 5"),
         types.BotCommand(command="time", description="Set send time /time 08:00"),
         types.BotCommand(command="page", description="Set current page /page 25"),
+        types.BotCommand(command="khatma", description="Set khatma number /khatma 5"),
         types.BotCommand(command="send_now", description="Send today's portion now"),
         types.BotCommand(command="azkar", description="Get a dua or dhikr now"),
         types.BotCommand(command="pause", description="Pause daily sending"),
