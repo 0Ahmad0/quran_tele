@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
 
 
 class DBManager:
@@ -18,6 +19,12 @@ class DBManager:
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _row_to_dict(row):
+        if row is None:
+            return None
+        return dict(row)
 
     def create_tables(self) -> None:
         with self.connect() as conn:
@@ -130,21 +137,21 @@ class DBManager:
                 f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params
             )
 
-    def get_user(self, user_id: int):
+    def get_user(self, user_id: int) -> dict | None:
         with self.connect() as conn:
-            return conn.execute(
+            return self._row_to_dict(conn.execute(
                 "SELECT * FROM users WHERE user_id = ?", (user_id,)
-            ).fetchone()
+            ).fetchone())
 
-    def get_all_active_users(self) -> list[sqlite3.Row]:
+    def get_all_active_users(self) -> list[dict]:
         with self.connect() as conn:
-            return conn.execute("SELECT * FROM users WHERE is_active = 1").fetchall()
+            return [dict(row) for row in conn.execute("SELECT * FROM users WHERE is_active = 1").fetchall()]
 
     def get_users_due(
         self, current_time: str, pdf_prepare_time: str, today: str
-    ) -> list[sqlite3.Row]:
+    ) -> list[dict]:
         with self.connect() as conn:
-            return conn.execute(
+            return [dict(row) for row in conn.execute(
                 """
                 SELECT * FROM users
                 WHERE is_active = 1
@@ -156,7 +163,7 @@ class DBManager:
                   )
                 """,
                 (today, current_time, pdf_prepare_time),
-            ).fetchall()
+            ).fetchall()]
 
     def clear_last_sent_date(self, user_id: int) -> None:
         with self.connect() as conn:
