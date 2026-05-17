@@ -43,7 +43,8 @@ class DBManager:
                     khatma_read_count INTEGER NOT NULL DEFAULT 0,
                     is_setup INTEGER NOT NULL DEFAULT 0,
                     khatma_number INTEGER NOT NULL DEFAULT 0,
-                    chat_type TEXT NOT NULL DEFAULT 'private'
+                    chat_type TEXT NOT NULL DEFAULT 'private',
+                    send_images INTEGER NOT NULL DEFAULT 1
                 )
                 """
             )
@@ -62,6 +63,9 @@ class DBManager:
             )
             self._ensure_column(
                 conn, "users", "chat_type", "TEXT NOT NULL DEFAULT 'private'"
+            )
+            self._ensure_column(
+                conn, "users", "send_images", "INTEGER NOT NULL DEFAULT 1"
             )
 
     def _ensure_column(
@@ -96,6 +100,7 @@ class DBManager:
         is_setup: Optional[bool] = None,
         khatma_number: Optional[int] = None,
         chat_type: Optional[str] = None,
+        send_images: Optional[bool] = None,
     ) -> None:
         updates = []
         params = []
@@ -127,6 +132,9 @@ class DBManager:
         if chat_type is not None:
             updates.append("chat_type = ?")
             params.append(chat_type)
+        if send_images is not None:
+            updates.append("send_images = ?")
+            params.append(1 if send_images else 0)
 
         if not updates:
             return

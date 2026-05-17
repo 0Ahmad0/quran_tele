@@ -69,6 +69,9 @@ BTN_SET_KHATMA = "🔢 تعيين الختمة"
 BTN_ADMIN_STATS = "📊 إحصائيات"
 BTN_ADMIN_BROADCAST = "📢 تعميم"
 BTN_ADMIN_SEND_DUA = "🤲 إرسال دعاء للجميع"
+BTN_TEST_SEND = "🧪 معاينة الورد"
+BTN_CALIBRATE = "⚙️ معايرة"
+BTN_SEND_TYPE = "🖼 نوع الإرسال"
 
 BUTTON_ALIASES = {
     BTN_SEND_NOW: "send_now",
@@ -99,6 +102,12 @@ BUTTON_ALIASES = {
     "📢 Broadcast": "admin_broadcast",
     BTN_ADMIN_SEND_DUA: "admin_send_dua",
     "🤲 Send Dua to All": "admin_send_dua",
+    BTN_TEST_SEND: "test_send",
+    "🧪 Preview Wird": "test_send",
+    BTN_CALIBRATE: "calibrate",
+    "⚙️ Calibration": "calibrate",
+    BTN_SEND_TYPE: "send_type",
+    "🖼 Send Type": "send_type",
 }
 
 PENDING_ACTIONS: dict[int, tuple[str, int]] = {}
@@ -122,6 +131,11 @@ TEXTS = {
         "admin_stats": BTN_ADMIN_STATS,
         "admin_broadcast": BTN_ADMIN_BROADCAST,
         "admin_send_dua": BTN_ADMIN_SEND_DUA,
+        "test_send": BTN_TEST_SEND,
+        "calibrate": BTN_CALIBRATE,
+        "send_type": BTN_SEND_TYPE,
+        "preview_label": "🧪 معاينة",
+        "text_only_note": "\n📝 وضع النص فقط",
     },
     "en": {
         "send_now": "📖 Send wird now",
@@ -141,6 +155,11 @@ TEXTS = {
         "admin_stats": "📊 Statistics",
         "admin_broadcast": "📢 Broadcast",
         "admin_send_dua": "🤲 Send Dua to All",
+        "test_send": "🧪 Preview Wird",
+        "calibrate": "⚙️ Calibration",
+        "send_type": "🖼 Send Type",
+        "preview_label": "🧪 Preview",
+        "text_only_note": "\n📝 Text only mode",
     },
 }
 
@@ -163,6 +182,9 @@ ALL_BUTTON_TEXTS = [
     BTN_ADMIN_STATS, "📊 Statistics",
     BTN_ADMIN_BROADCAST, "📢 Broadcast",
     BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All",
+    BTN_TEST_SEND, "🧪 Preview Wird",
+    BTN_CALIBRATE, "⚙️ Calibration",
+    BTN_SEND_TYPE, "🖼 Send Type",
 ]
 
 
@@ -187,6 +209,13 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
         [
             types.KeyboardButton(text=get_text(language, "set_khatma")),
             types.KeyboardButton(text=get_text(language, "language")),
+        ],
+        [
+            types.KeyboardButton(text=get_text(language, "test_send")),
+            types.KeyboardButton(text=get_text(language, "calibrate")),
+        ],
+        [
+            types.KeyboardButton(text=get_text(language, "send_type")),
         ],
     ]
     if is_admin_user and not is_group:
@@ -400,7 +429,7 @@ async def start_health_server() -> web.AppRunner | None:
     return runner
 
 
-async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
+async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: bool = False, send_images: bool = True) -> bool:
     pages, is_finish = get_pages_logic(current_page, goal)
     language = get_subscription_language(user_id)
     total_completed_khatmas = db.count_total_completed_khatmas()
@@ -415,21 +444,36 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
         khatma_number=khatma_number,
         language=language,
     )
+    if preview:
+        if language == "en":
+            caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
+        else:
+            caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
+    if not send_images:
+        if language == "en":
+            caption += get_text(language, "text_only_note")
+        else:
+            caption += get_text(language, "text_only_note")
+
     pdf_file = None
     image_files = []
 
     try:
         logger.info(
-            "Preparing daily Quran for user=%s goal=%s current_page=%s pages=%s-%s count=%s",
+            "Preparing daily Quran for user=%s goal=%s current_page=%s pages=%s-%s count=%s preview=%s send_images=%s",
             user_id,
             goal,
             current_page,
             pages[0],
             pages[-1],
             len(pages),
+            preview,
+            send_images,
         )
 
-        if len(pages) > 10:
+        if not send_images:
+            await bot.send_message(user_id, caption)
+        elif len(pages) > 10:
             pdf_file = await generate_quran_pdf(pages, user_id)
             await bot.send_document(
                 user_id,
@@ -454,31 +498,32 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int) -> bool:
                 ]
                 await bot.send_media_group(user_id, media)
 
-        if is_finish:
-            khatma_keyboard = types.InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text=get_text(language, "read_khatma"),
-                            callback_data="khatma:read",
-                        ),
-                        types.InlineKeyboardButton(
-                            text=get_text(language, "not_read_khatma"),
-                            callback_data="khatma:not_read",
-                        ),
+        if not preview:
+            if is_finish:
+                khatma_keyboard = types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            types.InlineKeyboardButton(
+                                text=get_text(language, "read_khatma"),
+                                callback_data="khatma:read",
+                            ),
+                            types.InlineKeyboardButton(
+                                text=get_text(language, "not_read_khatma"),
+                                callback_data="khatma:not_read",
+                            ),
+                        ]
                     ]
-                ]
-            )
-            await bot.send_message(
-                user_id,
-                "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
-                "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
-                "هل قرأت الختمة كاملة؟",
-                reply_markup=khatma_keyboard,
-            )
-            db.update_settings(user_id, page=1)
-        else:
-            db.update_settings(user_id, page=pages[-1] + 1)
+                )
+                await bot.send_message(
+                    user_id,
+                    "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
+                    "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
+                    "هل قرأت الختمة كاملة؟",
+                    reply_markup=khatma_keyboard,
+                )
+                db.update_settings(user_id, page=1)
+            else:
+                db.update_settings(user_id, page=pages[-1] + 1)
 
         return True
     except TelegramForbiddenError:
@@ -521,7 +566,8 @@ async def check_due_daily_quran() -> None:
     )
     for user in users:
         sent = await send_daily_quran(
-            user["user_id"], user["daily_goal"], user["current_page"]
+            user["user_id"], user["daily_goal"], user["current_page"],
+            send_images=bool(user.get("send_images", 1)),
         )
         if sent:
             db.update_settings(user["user_id"], last_sent_date=today)
@@ -707,6 +753,7 @@ async def status(message: types.Message):
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
     setup_text = "مكتمل ✅" if user.get("is_setup", 0) else "غير مكتمل ❌"
     khatma_num = user.get("khatma_number", 0)
+    send_type_text = "📷 مع صور" if user.get("send_images", 1) else "📝 نص فقط"
     admin = message.from_user and message.from_user.id == ADMIN_ID
     is_group = message.chat.type in ("group", "supergroup")
     resp = await message.answer(
@@ -716,7 +763,8 @@ async def status(message: types.Message):
         f"الختمة الحالية: {khatma_num}\n"
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
-        f"وقت الإرسال: {user['send_time']}",
+        f"وقت الإرسال: {user['send_time']}\n"
+        f"نوع الإرسال: {send_type_text}",
         reply_markup=main_keyboard(user["language"], admin, is_group),
     )
     await cleanup_group_messages(message, resp)
@@ -868,7 +916,8 @@ async def send_now(message: types.Message):
 
     loading_msg = await message.answer("جاري تجهيز وردك الآن... ⏳")
     sent = await send_daily_quran(
-        user["user_id"], user["daily_goal"], user["current_page"]
+        user["user_id"], user["daily_goal"], user["current_page"],
+        send_images=bool(user.get("send_images", 1)),
     )
     try:
         await loading_msg.delete()
@@ -973,6 +1022,216 @@ async def language_button(message: types.Message):
     await message.answer(
         get_text(language, "choose_language"), reply_markup=language_keyboard()
     )
+
+
+@dp.message(F.text.in_([BTN_TEST_SEND, "🧪 Preview Wird"]))
+async def test_send_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
+        return
+    await ensure_user(message)
+    subscription_id = get_subscription_id(message)
+    user = db.get_user(subscription_id)
+    if not user:
+        resp = await message.answer("استخدم /start أولًا لتفعيل اشتراكك.")
+        await cleanup_group_messages(message, resp)
+        return
+
+    loading_msg = await message.answer("جاري تجهيز معاينة الورد... ⏳")
+    sent = await send_daily_quran(
+        user["user_id"], user["daily_goal"], user["current_page"],
+        preview=True, send_images=bool(user.get("send_images", 1)),
+    )
+    try:
+        await loading_msg.delete()
+    except Exception:
+        pass
+    if not sent:
+        resp = await message.answer("تعذر إرسال الورد الآن. حاول لاحقًا.")
+        await cleanup_group_messages(message, resp)
+    else:
+        await delete_message_safe(message.chat.id, message.message_id)
+
+
+@dp.message(F.text.in_([BTN_CALIBRATE, "⚙️ Calibration"]))
+async def calibrate_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
+        return
+    await ensure_user(message)
+    language = get_subscription_language(get_subscription_id(message))
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(
+                    text="⏩ سبق يوم" if language == "ar" else "⏩ Skip a day",
+                    callback_data="calibrate:forward",
+                ),
+                types.InlineKeyboardButton(
+                    text="⏪ قصر يوم" if language == "ar" else "⏪ Go back a day",
+                    callback_data="calibrate:backward",
+                ),
+            ]
+        ]
+    )
+    user = db.get_user(get_subscription_id(message))
+    if user:
+        resp = await message.answer(
+            f"⚙️ معايرة الصفحة الحالية\n\n"
+            f"📍 الصفحة الحالية: {user['current_page']}\n"
+            f"🔢 الورد اليومي: {user['daily_goal']} صفحة\n\n"
+            f"⏩ سبق يوم: تقديم الصفحة بورد يوم كامل\n"
+            f"⏪ قصر يوم: تأخير الصفحة بورد يوم كامل",
+            reply_markup=keyboard,
+        )
+    else:
+        resp = await message.answer("⚙️ Calibration", reply_markup=keyboard)
+    await cleanup_group_messages(message, resp)
+
+
+@dp.message(F.text.in_([BTN_SEND_TYPE, "🖼 Send Type"]))
+async def send_type_button(message: types.Message):
+    if message.chat.type in ("group", "supergroup") and not await is_group_admin(message):
+        await message.answer("⚠️ فقط مشرفو المجموعة يمكنهم تعديل الإعدادات.")
+        await delete_message_safe(message.chat.id, message.message_id)
+        return
+    await ensure_user(message)
+    subscription_id = get_subscription_id(message)
+    user = db.get_user(subscription_id)
+    language = get_subscription_language(subscription_id)
+    current = bool(user.get("send_images", 1)) if user else True
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(
+                    text="📷 مع صور" + (" ✅" if current else ""),
+                    callback_data="images:on",
+                ),
+                types.InlineKeyboardButton(
+                    text="📝 نص فقط" + ("" if current else " ✅"),
+                    callback_data="images:off",
+                ),
+            ]
+        ]
+    )
+    if language == "en":
+        keyboard = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    types.InlineKeyboardButton(
+                        text="📷 With images" + (" ✅" if current else ""),
+                        callback_data="images:on",
+                    ),
+                    types.InlineKeyboardButton(
+                        text="📝 Text only" + ("" if current else " ✅"),
+                        callback_data="images:off",
+                    ),
+                ]
+            ]
+        )
+        resp = await message.answer(
+            f"🖼 Send type\n\n"
+            f"Current: {'With images' if current else 'Text only'}\n\n"
+            f"📷 With images: sends pages as images or PDF\n"
+            f"📝 Text only: sends only the juz and page info as text",
+            reply_markup=keyboard,
+        )
+    else:
+        resp = await message.answer(
+            f"🖼 نوع الإرسال\n\n"
+            f"الحالي: {'📷 مع صور' if current else '📝 نص فقط'}\n\n"
+            f"📷 مع صور: يرسل صفحات القرآن كصور أو PDF\n"
+            f"📝 نص فقط: يرسل فقط معلومات الجزء والصفحات كنص",
+            reply_markup=keyboard,
+        )
+    await cleanup_group_messages(message, resp)
+
+
+@dp.callback_query(F.data.startswith("calibrate:"))
+async def handle_calibrate(callback: types.CallbackQuery):
+    action = callback.data.split(":", 1)[1]
+    user_id = callback.message.chat.id
+    user = db.get_user(user_id)
+    if not user:
+        await callback.answer("استخدم /start أولًا.")
+        return
+
+    language = user.get("language", "ar")
+    daily_goal = user["daily_goal"]
+    current_page = user["current_page"]
+
+    if action == "forward":
+        new_page = min(current_page + daily_goal, 604)
+        db.update_settings(user_id, page=new_page)
+        if language == "en":
+            await callback.answer(f"Skipped ahead: page {current_page} → {new_page}")
+            await callback.message.edit_text(
+                f"⏩ Skipped a day\n\n"
+                f"Page: {current_page} → {new_page}\n"
+                f"Daily goal: {daily_goal} pages"
+            )
+        else:
+            await callback.answer(f"تم السبق: صفحة {current_page} ← {new_page}")
+            await callback.message.edit_text(
+                f"⏩ تم سبق يوم\n\n"
+                f"الصفحة: {current_page} ← {new_page}\n"
+                f"الورد اليومي: {daily_goal} صفحة"
+            )
+    elif action == "backward":
+        new_page = max(current_page - daily_goal, 1)
+        db.update_settings(user_id, page=new_page)
+        if language == "en":
+            await callback.answer(f"Went back: page {current_page} → {new_page}")
+            await callback.message.edit_text(
+                f"⏪ Went back a day\n\n"
+                f"Page: {current_page} → {new_page}\n"
+                f"Daily goal: {daily_goal} pages"
+            )
+        else:
+            await callback.answer(f"تم القصر: صفحة {current_page} ← {new_page}")
+            await callback.message.edit_text(
+                f"⏪ تم قصر يوم\n\n"
+                f"الصفحة: {current_page} ← {new_page}\n"
+                f"الورد اليومي: {daily_goal} صفحة"
+            )
+
+
+@dp.callback_query(F.data.startswith("images:"))
+async def handle_images_toggle(callback: types.CallbackQuery):
+    action = callback.data.split(":", 1)[1]
+    user_id = callback.message.chat.id
+    language = get_subscription_language(user_id)
+
+    if action == "on":
+        db.update_settings(user_id, send_images=True)
+        if language == "en":
+            await callback.answer("Send type: With images ✅")
+            await callback.message.edit_text(
+                "🖼 Send type updated\n\n"
+                "📷 With images: pages will be sent as images or PDF."
+            )
+        else:
+            await callback.answer("نوع الإرسال: مع صور ✅")
+            await callback.message.edit_text(
+                "🖼 تم تحديث نوع الإرسال\n\n"
+                "📷 مع صور: سيتم إرسال صفحات القرآن كصور أو PDF."
+            )
+    elif action == "off":
+        db.update_settings(user_id, send_images=False)
+        if language == "en":
+            await callback.answer("Send type: Text only ✅")
+            await callback.message.edit_text(
+                "🖼 Send type updated\n\n"
+                "📝 Text only: only juz and page info will be sent as text."
+            )
+        else:
+            await callback.answer("نوع الإرسال: نص فقط ✅")
+            await callback.message.edit_text(
+                "🖼 تم تحديث نوع الإرسال\n\n"
+                "📝 نص فقط: سيتم إرسال معلومات الجزء والصفحات كنص فقط."
+            )
 
 
 @dp.callback_query(F.data.startswith("lang:"))
