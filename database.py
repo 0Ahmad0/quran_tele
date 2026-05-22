@@ -6,19 +6,20 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from libsql_client import Client
-except ImportError:
-    Client = None
+    import libsql_client
+    create_client_sync = libsql_client.create_client_sync
+except (ImportError, AttributeError):
+    create_client_sync = None
 
 
 class DBManager:
     def __init__(self, db_name: str = "quran_bot.db"):
         self.db_url = os.getenv("DATABASE_URL")
         self.db_auth_token = os.getenv("DATABASE_AUTH_TOKEN")
-        self._libsql_client = None
+        self._client = None
 
-        if self.db_url and self.db_auth_token and Client:
-            self._libsql_client = Client(self.db_url, auth_token=self.db_auth_token)
+        if self.db_url and self.db_auth_token and create_client_sync:
+            self._client = create_client_sync(self.db_url, auth_token=self.db_auth_token)
             self.mode = "turso"
         else:
             data_dir = Path.home() / "QuranBotData"
@@ -30,7 +31,7 @@ class DBManager:
 
     def _execute(self, query: str, params=()):
         if self.mode == "turso":
-            return self._libsql_client.execute(query, params)
+            return self._client.execute(query, params)
         else:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
