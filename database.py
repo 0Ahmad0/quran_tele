@@ -5,21 +5,23 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+# Try libsql-experimental first (Turso's official native client)
 try:
-    import libsql_client
-    create_client_sync = libsql_client.create_client_sync
-except (ImportError, AttributeError):
-    create_client_sync = None
+    import libsql_experimental as libsql
+    _HAS_LIBSQL = True
+except ImportError:
+    libsql = None
+    _HAS_LIBSQL = False
 
 
 class DBManager:
     def __init__(self, db_name: str = "quran_bot.db"):
         self.db_url = os.getenv("DATABASE_URL")
         self.db_auth_token = os.getenv("DATABASE_AUTH_TOKEN")
-        self._client = None
+        self._conn = None
 
-        if self.db_url and self.db_auth_token and create_client_sync:
-            self._client = create_client_sync(self.db_url, auth_token=self.db_auth_token)
+        if self.db_url and self.db_auth_token and _HAS_LIBSQL:
+            self._conn = libsql.connect(":memory:", sync_url=self.db_url, auth_token=self.db_auth_token)
             self.mode = "turso"
         else:
             data_dir = Path.home() / "QuranBotData"
@@ -31,7 +33,9 @@ class DBManager:
 
     def _execute(self, query: str, params=()):
         if self.mode == "turso":
-            return self._client.execute(query, params)
+            cur = self._conn.execute(query, params)
+            rows = cur.fetchall()
+            return rows
         else:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
@@ -42,17 +46,17 @@ class DBManager:
 
     def _get_rows(self, result):
         if self.mode == "turso":
-            if not result.rows:
+            if not result:
                 return []
-            return [dict(zip(result.columns, row)) for row in result.rows]
+            return [dict(row) for row in result]
         else:
             return [dict(row) for row in result]
 
     def _get_first(self, result):
         if self.mode == "turso":
-            if not result.rows:
+            if not result:
                 return None
-            return dict(zip(result.columns, result.rows[0]))
+            return dict(result[0])
         else:
             if not result:
                 return None
