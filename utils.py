@@ -131,11 +131,12 @@ def build_wird_caption(
     language: str = "ar",
 ) -> str:
     juz = get_juz_number(start_page)
+    displayed_completed_khatmas = khatma_number - 1 if khatma_number > 0 else 0
     if language == "en":
         return (
             "Peace be upon you 🌿\n\n"
             f"📿 Khatma #{khatma_number}\n"
-            f"📿 Completed khatmas: {total_completed_khatmas}\n"
+            f"📿 Completed khatmas: {displayed_completed_khatmas}\n"
             f"🗓 {format_hijri_date(now)}\n"
             f"📅 {format_gregorian_date(now)}\n"
             f"👥 Khatma readers: {total_khatma_readers}\n\n"
@@ -146,7 +147,7 @@ def build_wird_caption(
     return (
         "السلام عليكم ورحمة الله وبركاته\n\n"
         f"📿 الختمة رقم: {khatma_number}\n"
-        f"📿 الختمات المقروءة: {total_completed_khatmas}\n"
+        f"📿 الختمات المقروءة: {displayed_completed_khatmas}\n"
         f"🗓 {format_hijri_date(now)}\n"
         f"📅 {format_gregorian_date(now)}\n"
         f"👥 عدد قرّاء الختمة: {total_khatma_readers}\n\n"

@@ -1,66 +1,24 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 from typing import Optional
 
-# Try libsql-experimental first (Turso's official native client)
-try:
-    import libsql_experimental as libsql
-    _HAS_LIBSQL = True
-except ImportError:
-    libsql = None
-    _HAS_LIBSQL = False
-
 
 class DBManager:
     def __init__(self, db_name: str = "quran_bot.db"):
-        self.db_url = os.getenv("DATABASE_URL")
-        self.db_auth_token = os.getenv("DATABASE_AUTH_TOKEN")
-        self._conn = None
-
-        if self.db_url and self.db_auth_token and _HAS_LIBSQL:
-            self._conn = libsql.connect(":memory:", sync_url=self.db_url, auth_token=self.db_auth_token)
-            self.mode = "turso"
-        else:
-            data_dir = Path.home() / "QuranBotData"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            self.db_path = data_dir / db_name
-            self.mode = "sqlite"
-
+        data_dir = Path.home() / "QuranBotData"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = data_dir / db_name
         self.create_tables()
 
     def _execute(self, query: str, params=()):
-        if self.mode == "turso":
-            cur = self._conn.execute(query, params)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute(query, params)
             rows = cur.fetchall()
+            conn.commit()
             return rows
-        else:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cur = conn.execute(query, params)
-                rows = cur.fetchall()
-                conn.commit()
-                return rows
-
-    def _get_rows(self, result):
-        if self.mode == "turso":
-            if not result:
-                return []
-            return [dict(row) for row in result]
-        else:
-            return [dict(row) for row in result]
-
-    def _get_first(self, result):
-        if self.mode == "turso":
-            if not result:
-                return None
-            return dict(result[0])
-        else:
-            if not result:
-                return None
-            return dict(result[0])
 
     def create_tables(self) -> None:
         self._execute(
@@ -169,14 +127,16 @@ class DBManager:
         result = self._execute(
             "SELECT * FROM users WHERE user_id = ?", (user_id,)
         )
-        return self._get_first(result)
+        if not result:
+            return None
+        return dict(result[0])
 
     def get_all_active_users(self, private_only: bool = False) -> list[dict]:
         if private_only:
             result = self._execute("SELECT * FROM users WHERE is_active = 1 AND chat_type = 'private'")
         else:
             result = self._execute("SELECT * FROM users WHERE is_active = 1")
-        return self._get_rows(result)
+        return [dict(row) for row in result]
 
     def get_users_due(
         self, current_time: str, pdf_prepare_time: str, today: str
@@ -194,7 +154,7 @@ class DBManager:
             """,
             (today, current_time, pdf_prepare_time),
         )
-        return self._get_rows(result)
+        return [dict(row) for row in result]
 
     def clear_last_sent_date(self, user_id: int) -> None:
         self._execute(
@@ -215,13 +175,13 @@ class DBManager:
         result = self._execute(
             "SELECT COUNT(*) AS total FROM users WHERE is_active = 1"
         )
-        return int(self._get_first(result)["total"])
+        return int(dict(result[0])["total"])
 
     def count_total_completed_khatmas(self) -> int:
         result = self._execute(
             "SELECT COALESCE(SUM(completed_khatmas), 0) AS total FROM users"
         )
-        return int(self._get_first(result)["total"])
+        return int(dict(result[0])["total"])
 
     def increment_khatma_read_count(self, user_id: int) -> None:
         self._execute(
@@ -237,11 +197,12 @@ class DBManager:
         result = self._execute(
             "SELECT COALESCE(SUM(khatma_read_count), 0) AS total FROM users"
         )
-        return int(self._get_first(result)["total"])
+        return int(dict(result[0])["total"])
 
     def get_khatma_number(self, user_id: int) -> int:
         result = self._execute(
             "SELECT khatma_number FROM users WHERE user_id = ?", (user_id,)
         )
-        row = self._get_first(result)
-        return int(row["khatma_number"]) if row else 0
+        if not result:
+            return 0
+        return int(dict(result[0])["khatma_number"])

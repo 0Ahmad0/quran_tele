@@ -9,6 +9,15 @@
 *.sqlite3
 quran_bot.db
 
+# IMPORTANT: Backup your database before pushing to Git!
+# Run this command to backup:
+#   Copy-Item quran_bot.db quran_bot.backup.db
+# Then add quran_bot.backup.db to .gitignore or store it securely elsewhere
+
+# Backup directory
+backups/
+*.backup.db
+
 # Temporary generated files
 tmp/
 *.pdf

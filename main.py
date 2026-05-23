@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from random import choice
 
 from aiogram import Bot, Dispatcher, F, types
@@ -69,6 +70,7 @@ BTN_SET_KHATMA = "🔢 تعيين الختمة"
 BTN_ADMIN_STATS = "📊 إحصائيات"
 BTN_ADMIN_BROADCAST = "📢 تعميم"
 BTN_ADMIN_SEND_DUA = "🤲 إرسال دعاء للجميع"
+BTN_ADMIN_DB = "💾 سحب قاعدة البيانات"
 BTN_TEST_SEND = "🧪 معاينة الورد"
 BTN_CALIBRATE = "⚙️ معايرة"
 BTN_SEND_TYPE = "🖼 نوع الإرسال"
@@ -102,6 +104,8 @@ BUTTON_ALIASES = {
     "📢 Broadcast": "admin_broadcast",
     BTN_ADMIN_SEND_DUA: "admin_send_dua",
     "🤲 Send Dua to All": "admin_send_dua",
+    BTN_ADMIN_DB: "admin_db",
+    "💾 Download Database": "admin_db",
     BTN_TEST_SEND: "test_send",
     "🧪 Preview Wird": "test_send",
     BTN_CALIBRATE: "calibrate",
@@ -131,6 +135,7 @@ TEXTS = {
         "admin_stats": BTN_ADMIN_STATS,
         "admin_broadcast": BTN_ADMIN_BROADCAST,
         "admin_send_dua": BTN_ADMIN_SEND_DUA,
+        "admin_db": BTN_ADMIN_DB,
         "test_send": BTN_TEST_SEND,
         "calibrate": BTN_CALIBRATE,
         "send_type": BTN_SEND_TYPE,
@@ -155,6 +160,7 @@ TEXTS = {
         "admin_stats": "📊 Statistics",
         "admin_broadcast": "📢 Broadcast",
         "admin_send_dua": "🤲 Send Dua to All",
+        "admin_db": "💾 Download Database",
         "test_send": "🧪 Preview Wird",
         "calibrate": "⚙️ Calibration",
         "send_type": "🖼 Send Type",
@@ -182,6 +188,7 @@ ALL_BUTTON_TEXTS = [
     BTN_ADMIN_STATS, "📊 Statistics",
     BTN_ADMIN_BROADCAST, "📢 Broadcast",
     BTN_ADMIN_SEND_DUA, "🤲 Send Dua to All",
+    BTN_ADMIN_DB, "💾 Download Database",
     BTN_TEST_SEND, "🧪 Preview Wird",
     BTN_CALIBRATE, "⚙️ Calibration",
     BTN_SEND_TYPE, "🖼 Send Type",
@@ -225,6 +232,7 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
         ])
         rows.append([
             types.KeyboardButton(text=get_text(language, "admin_send_dua")),
+            types.KeyboardButton(text=get_text(language, "admin_db")),
         ])
     return types.ReplyKeyboardMarkup(
         keyboard=rows,
@@ -306,6 +314,7 @@ HELP_TEXT = """
 /broadcast النص - إرسال تعميم للجميع
 /admin_send_dua - إرسال دعاء للجميع
 /set_khatma_count معرف_المستخدم رقم_الختمة - ضبط ختمة مستخدم
+/download_db - سحب نسخة من قاعدة البيانات
 """.strip()
 
 
@@ -576,11 +585,11 @@ async def check_due_daily_quran() -> None:
 
 async def send_dua_to_all() -> None:
     dua = choice(DUAS)
-    users = db.get_all_active_users()
+    users = db.get_all_active_users(private_only=True)
     if not users:
         return
 
-    logger.info("Sending dua to %s active users", len(users))
+    logger.info("Sending dua to %s active users (private only)", len(users))
     for user in users:
         try:
             await bot.send_message(user["user_id"], f"🤲 دعاء مأثور\n\n{dua}")
@@ -1504,6 +1513,25 @@ async def admin_send_dua_button(message: types.Message):
     await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
 
 
+@dp.message(Command("download_db"), F.from_user.id == ADMIN_ID)
+async def download_db_command(message: types.Message):
+    db_path = Path.home() / "QuranBotData" / "quran_bot.db"
+    if not db_path.exists():
+        await message.answer("⚠️ ملف قاعدة البيانات غير موجود.")
+        return
+    await message.answer_document(
+        document=types.FSInputFile(str(db_path), filename="quran_bot.db"),
+        caption="💾 نسخة من قاعدة البيانات",
+    )
+
+
+@dp.message(F.text.in_([BTN_ADMIN_DB, "💾 Download Database"]))
+async def admin_db_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await download_db_command(message)
+
+
 @dp.message(F.text, F.chat.type == "private")
 async def fallback_private(message: types.Message):
     await ensure_user(message)
@@ -1561,12 +1589,14 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="broadcast", description="تعميم رسالة للجميع"),
         types.BotCommand(command="admin_send_dua", description="إرسال دعاء للجميع"),
         types.BotCommand(command="set_khatma_count", description="ضبط رقم الختمة لمستخدم"),
+        types.BotCommand(command="download_db", description="سحب نسخة من قاعدة البيانات"),
     ]
     admin_commands_en = [
         types.BotCommand(command="admin_stats", description="Active subscribers count"),
         types.BotCommand(command="broadcast", description="Broadcast message to all"),
         types.BotCommand(command="admin_send_dua", description="Send dua to all users"),
         types.BotCommand(command="set_khatma_count", description="Set khatma number for user"),
+        types.BotCommand(command="download_db", description="Download database backup"),
     ]
     try:
         await bot.set_my_commands(user_commands_ar, scope=types.BotCommandScopeAllPrivateChats(), language_code="ar")
