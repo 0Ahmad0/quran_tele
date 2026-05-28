@@ -447,16 +447,10 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: 
     async with _send_sem:
         pages, is_finish = get_pages_logic(current_page, goal)
         language = get_subscription_language(user_id)
-        total_completed_khatmas = db.count_total_completed_khatmas()
-        total_khatma_readers = db.count_total_khatma_readers()
-        khatma_number = db.get_khatma_number(user_id)
         caption = build_wird_caption(
             start_page=pages[0],
             end_page=pages[-1],
-            total_completed_khatmas=total_completed_khatmas,
-            total_khatma_readers=total_khatma_readers,
             now=datetime.now(scheduler.timezone),
-            khatma_number=khatma_number,
             language=language,
         )
         if preview:
@@ -1298,6 +1292,11 @@ async def handle_khatma_response(callback: types.CallbackQuery):
         )
 
     db.update_settings(user_id, page=1)
+    total_khatma_readers = db.count_total_khatma_readers()
+    await bot.send_message(
+        user_id,
+        f"👥 عدد قرّاء الختمة: {total_khatma_readers}"
+    )
 
 
 @dp.message(F.text, lambda message: get_subscription_id_no_ensure(message) in PENDING_ACTIONS)

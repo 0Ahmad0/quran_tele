@@ -137,33 +137,23 @@ def format_hijri_date(now: datetime) -> str:
 def build_wird_caption(
     start_page: int,
     end_page: int,
-    total_completed_khatmas: int,
-    total_khatma_readers: int,
     now: datetime,
-    khatma_number: int = 0,
     language: str = "ar",
 ) -> str:
     juz = get_juz_number(start_page)
-    displayed_completed_khatmas = khatma_number - 1 if khatma_number > 0 else 0
     if language == "en":
         return (
             "Peace be upon you 🌿\n\n"
-            f"📿 Khatma #{khatma_number}\n"
-            f"📿 Completed khatmas: {displayed_completed_khatmas}\n"
             f"🗓 {format_hijri_date(now)}\n"
-            f"📅 {format_gregorian_date(now)}\n"
-            f"👥 Khatma readers: {total_khatma_readers}\n\n"
+            f"📅 {format_gregorian_date(now)}\n\n"
             f"📚 Juz {juz}\n"
             f"📄 Pages: {start_page} to {end_page}"
         )
 
     return (
         "السلام عليكم ورحمة الله وبركاته\n\n"
-        f"📿 الختمة رقم: {khatma_number}\n"
-        f"📿 الختمات المقروءة: {displayed_completed_khatmas}\n"
         f"🗓 {format_hijri_date(now)}\n"
-        f"📅 {format_gregorian_date(now)}\n"
-        f"👥 عدد قرّاء الختمة: {total_khatma_readers}\n\n"
+        f"📅 الموافق لـ {format_gregorian_date(now)}\n\n"
         f"📚 الجزء {juz}\n"
         f"📄 الصفحات: من {start_page} إلى {end_page}"
     )
