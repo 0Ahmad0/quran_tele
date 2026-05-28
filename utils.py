@@ -16,6 +16,19 @@ IMAGE_URL_TEMPLATE = (
 )
 TMP_DIR = Path("tmp")
 
+# Limit concurrent image downloads to avoid memory spikes on free tier
+_download_sem = asyncio.Semaphore(3)
+
+# Shared aiohttp session (initialized lazily)
+_shared_session: aiohttp.ClientSession | None = None
+
+
+async def _get_shared_session() -> aiohttp.ClientSession:
+    global _shared_session
+    if _shared_session is None or _shared_session.closed:
+        _shared_session = aiohttp.ClientSession()
+    return _shared_session
+
 JUZ_START_PAGES = [
     1,
     22,
@@ -176,17 +189,18 @@ async def download_page(
     path = TMP_DIR / f"quran_{user_id}_{page}.png"
     url = IMAGE_URL_TEMPLATE.format(page=page)
 
-    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-        response.raise_for_status()
-        path.write_bytes(await response.read())
+    async with _download_sem:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            response.raise_for_status()
+            path.write_bytes(await response.read())
 
     return path
 
 
 async def generate_quran_images(pages: Iterable[int], user_id: int) -> list[Path]:
     pages = list(pages)
-    async with aiohttp.ClientSession() as session:
-        return [await download_page(session, page, user_id) for page in pages]
+    session = await _get_shared_session()
+    return [await download_page(session, page, user_id) for page in pages]
 
 
 async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
@@ -205,6 +219,13 @@ async def generate_quran_pdf(pages: Iterable[int], user_id: int) -> Path:
     finally:
         for path in image_paths:
             cleanup_file(path)
+
+
+async def close_shared_session() -> None:
+    global _shared_session
+    if _shared_session and not _shared_session.closed:
+        await _shared_session.close()
+        _shared_session = None
 
 
 def cleanup_file(path: os.PathLike | str) -> None:

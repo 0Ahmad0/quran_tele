@@ -45,3 +45,7 @@ Thumbs.db
 # IDE files
 .vscode/
 .idea/
+
+# Local docs / posts (not needed in repo)
+LINKEDIN_POST.md
+MEMORY_FIX.md

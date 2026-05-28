@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import os
 import re
@@ -26,6 +27,7 @@ from utils import (
     DUAS,
     build_wird_caption,
     cleanup_file,
+    close_shared_session,
     generate_quran_images,
     generate_quran_pdf,
     get_pages_logic,
@@ -52,6 +54,9 @@ dp = Dispatcher()
 db = DBManager()
 scheduler = AsyncIOScheduler(timezone=CHECK_TIMEZONE)
 health_runner: web.AppRunner | None = None
+
+# Limit concurrent daily-sends to avoid memory spikes on free tier
+_send_sem = asyncio.Semaphore(5)
 
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -439,117 +444,120 @@ async def start_health_server() -> web.AppRunner | None:
 
 
 async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: bool = False, send_images: bool = True) -> bool:
-    pages, is_finish = get_pages_logic(current_page, goal)
-    language = get_subscription_language(user_id)
-    total_completed_khatmas = db.count_total_completed_khatmas()
-    total_khatma_readers = db.count_total_khatma_readers()
-    khatma_number = db.get_khatma_number(user_id)
-    caption = build_wird_caption(
-        start_page=pages[0],
-        end_page=pages[-1],
-        total_completed_khatmas=total_completed_khatmas,
-        total_khatma_readers=total_khatma_readers,
-        now=datetime.now(scheduler.timezone),
-        khatma_number=khatma_number,
-        language=language,
-    )
-    if preview:
-        if language == "en":
-            caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
-        else:
-            caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
-    if not send_images:
-        if language == "en":
-            caption += get_text(language, "text_only_note")
-        else:
-            caption += get_text(language, "text_only_note")
-
-    pdf_file = None
-    image_files = []
-
-    try:
-        logger.info(
-            "Preparing daily Quran for user=%s goal=%s current_page=%s pages=%s-%s count=%s preview=%s send_images=%s",
-            user_id,
-            goal,
-            current_page,
-            pages[0],
-            pages[-1],
-            len(pages),
-            preview,
-            send_images,
+    async with _send_sem:
+        pages, is_finish = get_pages_logic(current_page, goal)
+        language = get_subscription_language(user_id)
+        total_completed_khatmas = db.count_total_completed_khatmas()
+        total_khatma_readers = db.count_total_khatma_readers()
+        khatma_number = db.get_khatma_number(user_id)
+        caption = build_wird_caption(
+            start_page=pages[0],
+            end_page=pages[-1],
+            total_completed_khatmas=total_completed_khatmas,
+            total_khatma_readers=total_khatma_readers,
+            now=datetime.now(scheduler.timezone),
+            khatma_number=khatma_number,
+            language=language,
         )
-
+        if preview:
+            if language == "en":
+                caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
+            else:
+                caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
         if not send_images:
-            await bot.send_message(user_id, caption)
-        elif len(pages) > 10:
-            pdf_file = await generate_quran_pdf(pages, user_id)
-            await bot.send_document(
+            if language == "en":
+                caption += get_text(language, "text_only_note")
+            else:
+                caption += get_text(language, "text_only_note")
+
+        pdf_file = None
+        image_files = []
+
+        try:
+            logger.info(
+                "Preparing daily Quran for user=%s goal=%s current_page=%s pages=%s-%s count=%s preview=%s send_images=%s",
                 user_id,
-                types.FSInputFile(pdf_file),
-                caption=f"{caption}\nتم إرساله كملف PDF لسهولة التصفح.",
+                goal,
+                current_page,
+                pages[0],
+                pages[-1],
+                len(pages),
+                preview,
+                send_images,
             )
-        else:
-            image_files = await generate_quran_images(pages, user_id)
-            if len(image_files) == 1:
-                await bot.send_photo(
+
+            if not send_images:
+                await bot.send_message(user_id, caption)
+            elif len(pages) > 10:
+                pdf_file = await generate_quran_pdf(pages, user_id)
+                await bot.send_document(
                     user_id,
-                    photo=types.FSInputFile(image_files[0]),
-                    caption=caption,
+                    types.FSInputFile(pdf_file),
+                    caption=f"{caption}\nتم إرساله كملف PDF لسهولة التصفح.",
                 )
             else:
-                media = [
-                    types.InputMediaPhoto(
-                        media=types.FSInputFile(image_file),
-                        caption=caption if index == 0 else None,
+                image_files = await generate_quran_images(pages, user_id)
+                if len(image_files) == 1:
+                    await bot.send_photo(
+                        user_id,
+                        photo=types.FSInputFile(image_files[0]),
+                        caption=caption,
                     )
-                    for index, image_file in enumerate(image_files)
-                ]
-                await bot.send_media_group(user_id, media)
-
-        if not preview:
-            if is_finish:
-                khatma_keyboard = types.InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            types.InlineKeyboardButton(
-                                text=get_text(language, "read_khatma"),
-                                callback_data="khatma:read",
-                            ),
-                            types.InlineKeyboardButton(
-                                text=get_text(language, "not_read_khatma"),
-                                callback_data="khatma:not_read",
-                            ),
-                        ]
+                else:
+                    media = [
+                        types.InputMediaPhoto(
+                            media=types.FSInputFile(image_file),
+                            caption=caption if index == 0 else None,
+                        )
+                        for index, image_file in enumerate(image_files)
                     ]
-                )
-                await bot.send_message(
-                    user_id,
-                    "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
-                    "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
-                    "هل قرأت الختمة كاملة؟",
-                    reply_markup=khatma_keyboard,
-                )
-                db.update_settings(user_id, page=1)
-            else:
-                db.update_settings(user_id, page=pages[-1] + 1)
+                    await bot.send_media_group(user_id, media)
 
-        return True
-    except TelegramForbiddenError:
-        logger.info("User %s blocked the bot. Deactivating user.", user_id)
-        db.update_settings(user_id, is_active=False)
-        return False
-    except TelegramBadRequest as exc:
-        logger.warning("Telegram rejected daily Quran send for %s: %s", user_id, exc)
-        return False
-    except Exception:
-        logger.exception("Failed to send daily Quran to user %s", user_id)
-        return False
-    finally:
-        if pdf_file:
-            cleanup_file(pdf_file)
-        for image_file in image_files:
-            cleanup_file(image_file)
+            if not preview:
+                if is_finish:
+                    khatma_keyboard = types.InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                types.InlineKeyboardButton(
+                                    text=get_text(language, "read_khatma"),
+                                    callback_data="khatma:read",
+                                ),
+                                types.InlineKeyboardButton(
+                                    text=get_text(language, "not_read_khatma"),
+                                    callback_data="khatma:not_read",
+                                ),
+                            ]
+                        ]
+                    )
+                    await bot.send_message(
+                        user_id,
+                        "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
+                        "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
+                        "هل قرأت الختمة كاملة؟",
+                        reply_markup=khatma_keyboard,
+                    )
+                    db.update_settings(user_id, page=1)
+                else:
+                    db.update_settings(user_id, page=pages[-1] + 1)
+
+            return True
+        except TelegramForbiddenError:
+            logger.info("User %s blocked the bot. Deactivating user.", user_id)
+            db.update_settings(user_id, is_active=False)
+            return False
+        except TelegramBadRequest as exc:
+            logger.warning("Telegram rejected daily Quran send for %s: %s", user_id, exc)
+            return False
+        except Exception:
+            logger.exception("Failed to send daily Quran to user %s", user_id)
+            return False
+        finally:
+            if pdf_file:
+                cleanup_file(pdf_file)
+            for image_file in image_files:
+                cleanup_file(image_file)
+            # Force garbage collection after heavy image/pdf operations
+            gc.collect()
 
 
 async def check_due_daily_quran() -> None:
@@ -580,7 +588,9 @@ async def check_due_daily_quran() -> None:
         )
         if sent:
             db.update_settings(user["user_id"], last_sent_date=today)
-        await asyncio.sleep(0.1)
+        # Slightly longer sleep to reduce CPU/RAM pressure on free tier
+        await asyncio.sleep(0.3)
+        gc.collect()
 
 
 async def send_dua_to_all() -> None:
@@ -597,7 +607,8 @@ async def send_dua_to_all() -> None:
             db.update_settings(user["user_id"], is_active=False)
         except Exception:
             logger.exception("Failed to send dua to user %s", user["user_id"])
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.3)
+        gc.collect()
 
 
 NOT_ADMIN_GROUP_MESSAGE = (
@@ -1637,6 +1648,7 @@ async def main() -> None:
             scheduler.shutdown(wait=False)
         if health_runner:
             await health_runner.cleanup()
+        await close_shared_session()
         await bot.session.close()
 
 
