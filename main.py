@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from random import choice
+
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import UpdateType
@@ -24,13 +24,15 @@ from dotenv import load_dotenv
 
 from database import DBManager
 from utils import (
-    DUAS,
     build_wird_caption,
     cleanup_file,
     close_shared_session,
     generate_quran_images,
     generate_quran_pdf,
     get_pages_logic,
+    get_random_dua,
+    load_duas,
+    save_duas,
 )
 
 load_dotenv()
@@ -320,6 +322,9 @@ HELP_TEXT = """
 /admin_send_dua - إرسال دعاء للجميع
 /set_khatma_count معرف_المستخدم رقم_الختمة - ضبط ختمة مستخدم
 /download_db - سحب نسخة من قاعدة البيانات
+/export_json - تصدير جميع البيانات إلى JSON
+/import_json - استيراد بيانات من ملف JSON
+/add_dua نص - إضافة دعاء جديد
 """.strip()
 
 
@@ -458,11 +463,6 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: 
                 caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
             else:
                 caption = f"[{get_text(language, 'preview_label')}]\n\n{caption}"
-        if not send_images:
-            if language == "en":
-                caption += get_text(language, "text_only_note")
-            else:
-                caption += get_text(language, "text_only_note")
 
         pdf_file = None
         image_files = []
@@ -588,7 +588,7 @@ async def check_due_daily_quran() -> None:
 
 
 async def send_dua_to_all() -> None:
-    dua = choice(DUAS)
+    dua = get_random_dua()
     users = db.get_all_active_users(private_only=True)
     if not users:
         return
@@ -767,6 +767,7 @@ async def status(message: types.Message):
     active_text = "نشط ✅" if user["is_active"] else "متوقف مؤقتًا ⏸"
     setup_text = "مكتمل ✅" if user.get("is_setup", 0) else "غير مكتمل ❌"
     khatma_num = user.get("khatma_number", 0)
+    completed_khatmas = user.get("completed_khatmas", 0)
     send_type_text = "📷 مع صور" if user.get("send_images", 1) else "📝 نص فقط"
     admin = message.from_user and message.from_user.id == ADMIN_ID
     is_group = message.chat.type in ("group", "supergroup")
@@ -775,6 +776,7 @@ async def status(message: types.Message):
         f"الحالة: {active_text}\n"
         f"الإعداد: {setup_text}\n"
         f"الختمة الحالية: {khatma_num}\n"
+        f"✅ عدد الختمات المقروءة: {completed_khatmas}\n"
         f"الورد اليومي: {user['daily_goal']} صفحة\n"
         f"الصفحة الحالية: {user['current_page']}\n"
         f"وقت الإرسال: {user['send_time']}\n"
@@ -889,7 +891,7 @@ async def set_khatma(message: types.Message):
 @dp.message(Command("azkar", "dua"))
 async def send_azkar(message: types.Message):
     await ensure_user(message)
-    resp = await message.answer(f"🤲 ذكر ودعاء\n\n{choice(DUAS)}")
+    resp = await message.answer(f"🤲 ذكر ودعاء\n\n{get_random_dua()}")
     await cleanup_group_messages(message, resp, delay=120)
 
 
@@ -1446,7 +1448,15 @@ def get_subscription_id_no_ensure(message: types.Message) -> int:
 
 @dp.message(Command("admin_stats"), F.from_user.id == ADMIN_ID)
 async def admin_stats(message: types.Message):
-    await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
+    active_users = db.count_active_users()
+    total_khatmas = db.count_total_completed_khatmas()
+    total_readers = db.count_total_khatma_readers()
+    await message.answer(
+        f"📊 إحصائيات:\n\n"
+        f"👤 المشتركين النشطين: {active_users}\n"
+        f"✅ عدد الختمات المقروءة: {total_khatmas}\n"
+        f"📖 عدد مرات تسليم الختمات: {total_readers}"
+    )
 
 
 @dp.message(Command("broadcast"), F.from_user.id == ADMIN_ID)
@@ -1504,7 +1514,15 @@ async def set_khatma_count(message: types.Message):
 async def admin_stats_button(message: types.Message):
     if not is_admin(message):
         return
-    await message.answer(f"📊 عدد المشتركين النشطين: {db.count_active_users()}")
+    active_users = db.count_active_users()
+    total_khatmas = db.count_total_completed_khatmas()
+    total_readers = db.count_total_khatma_readers()
+    await message.answer(
+        f"📊 إحصائيات:\n\n"
+        f"👤 المشتركين النشطين: {active_users}\n"
+        f"✅ عدد الختمات المقروءة: {total_khatmas}\n"
+        f"📖 عدد مرات تسليم الختمات: {total_readers}"
+    )
 
 
 @dp.message(F.text.in_([BTN_ADMIN_BROADCAST, "📢 Broadcast"]))
@@ -1533,6 +1551,54 @@ async def download_db_command(message: types.Message):
         document=types.FSInputFile(str(db_path), filename="quran_bot.db"),
         caption="💾 نسخة من قاعدة البيانات",
     )
+
+
+@dp.message(Command("export_json"), F.from_user.id == ADMIN_ID)
+async def export_json_command(message: types.Message):
+    json_data = db.export_json()
+    fd = "users_export.json"
+    with open(fd, "w", encoding="utf-8") as f:
+        f.write(json_data)
+    await message.answer_document(
+        document=types.FSInputFile(fd, filename=fd),
+        caption="✅ تصدير جميع بيانات المستخدمين",
+    )
+    Path(fd).unlink(missing_ok=True)
+
+
+@dp.message(Command("import_json"), F.from_user.id == ADMIN_ID)
+async def import_json_command(message: types.Message):
+    PENDING_ACTIONS[message.chat.id] = ("import_json", message.from_user.id)
+    await message.answer("📤 أرسل ملف JSON لاستيراد البيانات.")
+
+
+@dp.document(F.from_user.id == ADMIN_ID)
+async def handle_import_json_doc(message: types.Message):
+    entry = PENDING_ACTIONS.pop(message.chat.id, None)
+    if entry is None or entry[0] != "import_json":
+        return
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            await bot.download(message.document, destination=tmp.name)
+            json_data = Path(tmp.name).read_text(encoding="utf-8")
+        Path(tmp.name).unlink(missing_ok=True)
+        count = db.import_json(json_data)
+        await message.answer(f"✅ تم استيراد بيانات {count} مستخدم بنجاح.")
+    except Exception as e:
+        await message.answer(f"❌ فشل استيراد الملف: {e}")
+
+
+@dp.message(Command("add_dua"), F.from_user.id == ADMIN_ID)
+async def add_dua_command(message: types.Message):
+    dua_text = message.text.replace("/add_dua", "", 1).strip()
+    if not dua_text:
+        await message.answer("اكتب الدعاء بعد الأمر هكذا:\n/add_dua اللهم اجعل القرآن ربيع قلوبنا")
+        return
+    duas = load_duas()
+    duas.append(dua_text)
+    save_duas(duas)
+    await message.answer("✅ تم إضافة الدعاء الجديد بنجاح.")
 
 
 @dp.message(F.text.in_([BTN_ADMIN_DB, "💾 Download Database"]))
@@ -1600,6 +1666,9 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="admin_send_dua", description="إرسال دعاء للجميع"),
         types.BotCommand(command="set_khatma_count", description="ضبط رقم الختمة لمستخدم"),
         types.BotCommand(command="download_db", description="سحب نسخة من قاعدة البيانات"),
+        types.BotCommand(command="export_json", description="تصدير البيانات إلى JSON"),
+        types.BotCommand(command="import_json", description="استيراد بيانات من JSON"),
+        types.BotCommand(command="add_dua", description="إضافة دعاء جديد"),
     ]
     admin_commands_en = [
         types.BotCommand(command="admin_stats", description="Active subscribers count"),
@@ -1607,6 +1676,9 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="admin_send_dua", description="Send dua to all users"),
         types.BotCommand(command="set_khatma_count", description="Set khatma number for user"),
         types.BotCommand(command="download_db", description="Download database backup"),
+        types.BotCommand(command="export_json", description="Export data to JSON"),
+        types.BotCommand(command="import_json", description="Import data from JSON"),
+        types.BotCommand(command="add_dua", description="Add a new dua"),
     ]
     try:
         await bot.set_my_commands(user_commands_ar, scope=types.BotCommandScopeAllPrivateChats(), language_code="ar")
