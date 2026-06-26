@@ -1713,7 +1713,7 @@ async def main() -> None:
         scheduler.start()
 
         logger.info("Quran bot started")
-        await dp.start_polling(bot, allowed_updates=[UpdateType.MESSAGE, UpdateType.CALLBACK_QUERY, UpdateType.MY_CHAT_MEMBER])
+        await dp.start_polling(bot, allowed_updates=[UpdateType.MESSAGE, UpdateType.CALLBACK_QUERY, UpdateType.MY_CHAT_MEMBER], drop_pending_updates=True)
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
