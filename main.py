@@ -523,13 +523,35 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: 
                             ]
                         ]
                     )
-                    await bot.send_message(
-                        user_id,
-                        "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
-                        "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
-                        "هل قرأت الختمة كاملة؟",
-                        reply_markup=khatma_keyboard,
-                    )
+                    user_info = db.get_user(user_id)
+                    is_group = user_info.get("chat_type", "private") == "group" if user_info else False
+                    if is_group:
+                        await bot.send_message(
+                            user_id,
+                            "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
+                            "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
+                            "سيتم إرسال رسالة خاصة لكل عضو ليسأل عن قراءته للختمة.",
+                        )
+                        members = db.get_group_members(user_id)
+                        for member in members:
+                            try:
+                                await bot.send_message(
+                                    member["user_id"],
+                                    "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
+                                    "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
+                                    "هل قرأت الختمة كاملة؟",
+                                    reply_markup=khatma_keyboard,
+                                )
+                            except Exception:
+                                logger.warning("Could not send private khatma to user %s", member["user_id"])
+                    else:
+                        await bot.send_message(
+                            user_id,
+                            "🎉 هنيئًا لكم ختم القرآن الكريم!\n\n"
+                            "اللهم اجعل القرآن العظيم ربيع قلوبنا ونور صدورنا وجلاء أحزاننا وذهاب همومنا.\n\n"
+                            "هل قرأت الختمة كاملة؟",
+                            reply_markup=khatma_keyboard,
+                        )
                     db.update_settings(user_id, page=1)
                 else:
                     db.update_settings(user_id, page=pages[-1] + 1)
@@ -1267,8 +1289,17 @@ async def change_language(callback: types.CallbackQuery):
     )
 
 
+def track_group_member(callback_or_msg: types.CallbackQuery | types.Message) -> None:
+    chat = callback_or_msg.message.chat if isinstance(callback_or_msg, types.CallbackQuery) else callback_or_msg.chat
+    if chat.type in ("group", "supergroup"):
+        user = callback_or_msg.from_user
+        if user:
+            db.add_group_member(chat.id, user.id, user.username)
+
+
 @dp.callback_query(F.data.startswith("khatma:"))
 async def handle_khatma_response(callback: types.CallbackQuery):
+    track_group_member(callback)
     action = callback.data.split(":", 1)[1]
     user_id = callback.message.chat.id
 
@@ -1286,6 +1317,7 @@ async def handle_khatma_response(callback: types.CallbackQuery):
     else:
         current_khatma = db.get_khatma_number(user_id)
         db.update_settings(user_id, khatma_number=current_khatma + 1)
+        db.increment_khatma_unread(user_id)
         await callback.answer("تم تسجيل أنك لم تقرأ الختمة")
         await callback.message.edit_text(
             "📝 تم تسجيل أنك لم تقرأ الختمة.\n\n"
@@ -1457,6 +1489,21 @@ async def admin_stats(message: types.Message):
         f"✅ عدد الختمات المقروءة: {total_khatmas}\n"
         f"📖 عدد مرات تسليم الختمات: {total_readers}"
     )
+
+
+@dp.message(Command("unread_stats"), F.from_user.id == ADMIN_ID)
+async def unread_stats(message: types.Message):
+    total_unread = db.count_total_khatma_unread()
+    unread_users = db.get_unread_stats()
+    text = f"📊 إحصائيات الختمات غير المقروءة:\n\n"
+    text += f"📈 إجمالي الختمات غير المقروءة: {total_unread}\n"
+    text += f"👤 عدد المستخدمين: {len(unread_users)}\n\n"
+    if unread_users:
+        text += "قائمة المستخدمين:\n"
+        for u in unread_users[:20]:
+            name = u["username"] or f"ID:{u['user_id']}"
+            text += f"• {name}: {u['khatma_unread']} ختمة\n"
+    await message.answer(text)
 
 
 @dp.message(Command("broadcast"), F.from_user.id == ADMIN_ID)
@@ -1669,6 +1716,7 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="export_json", description="تصدير البيانات إلى JSON"),
         types.BotCommand(command="import_json", description="استيراد بيانات من JSON"),
         types.BotCommand(command="add_dua", description="إضافة دعاء جديد"),
+        types.BotCommand(command="unread_stats", description="إحصائيات الختمات غير المقروءة"),
     ]
     admin_commands_en = [
         types.BotCommand(command="admin_stats", description="Active subscribers count"),
@@ -1679,6 +1727,7 @@ async def set_bot_commands() -> None:
         types.BotCommand(command="export_json", description="Export data to JSON"),
         types.BotCommand(command="import_json", description="Import data from JSON"),
         types.BotCommand(command="add_dua", description="Add a new dua"),
+        types.BotCommand(command="unread_stats", description="Unread khatma statistics"),
     ]
     try:
         await bot.set_my_commands(user_commands_ar, scope=types.BotCommandScopeAllPrivateChats(), language_code="ar")

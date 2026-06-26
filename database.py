@@ -79,6 +79,14 @@ class DBManager:
                 khatma_unread INTEGER NOT NULL DEFAULT 0
             )"""
         )
+        self._execute_sync(
+            """CREATE TABLE IF NOT EXISTS group_members (
+                group_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                PRIMARY KEY (group_id, user_id)
+            )"""
+        )
         for col, definition in [
             ("completed_khatmas", "INTEGER NOT NULL DEFAULT 0"),
             ("language", "TEXT NOT NULL DEFAULT 'ar'"),
@@ -113,6 +121,14 @@ class DBManager:
                     chat_type TEXT NOT NULL DEFAULT 'private',
                     send_images INTEGER NOT NULL DEFAULT 1,
                     khatma_unread INTEGER NOT NULL DEFAULT 0
+                )"""
+            )
+            await self._execute_awaitable(
+                """CREATE TABLE IF NOT EXISTS group_members (
+                    group_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    username TEXT,
+                    PRIMARY KEY (group_id, user_id)
                 )"""
             )
             for col, definition in [
@@ -235,11 +251,29 @@ class DBManager:
         result = self._execute("SELECT COALESCE(SUM(khatma_read_count), 0) AS total FROM users")
         return int(result[0]["total"])
 
+    def count_total_khatma_unread(self) -> int:
+        result = self._execute("SELECT COALESCE(SUM(khatma_unread), 0) AS total FROM users")
+        return int(result[0]["total"])
+
+    def get_unread_stats(self) -> list[dict]:
+        return self._execute(
+            "SELECT user_id, username, khatma_unread FROM users WHERE khatma_unread > 0 ORDER BY khatma_unread DESC LIMIT 50"
+        )
+
     def get_khatma_number(self, user_id: int) -> int:
         result = self._execute("SELECT khatma_number FROM users WHERE user_id = ?", (user_id,))
         if not result:
             return 0
         return int(result[0]["khatma_number"])
+
+    def add_group_member(self, group_id: int, user_id: int, username: str | None = None) -> None:
+        self._execute(
+            "INSERT OR IGNORE INTO group_members (group_id, user_id, username) VALUES (?, ?, ?)",
+            (group_id, user_id, username),
+        )
+
+    def get_group_members(self, group_id: int) -> list[dict]:
+        return self._execute("SELECT * FROM group_members WHERE group_id = ?", (group_id,))
 
     def export_json(self) -> str:
         result = self._execute("SELECT * FROM users")
@@ -254,8 +288,8 @@ class DBManager:
             self._execute(
                 """INSERT INTO users (user_id, username, daily_goal, current_page, send_time,
                     is_active, last_sent_date, completed_khatmas, language,
-                    khatma_read_count, is_setup, khatma_number, chat_type, send_images)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    khatma_read_count, is_setup, khatma_number, chat_type, send_images, khatma_unread)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     username = excluded.username,
                     daily_goal = excluded.daily_goal,
@@ -269,7 +303,8 @@ class DBManager:
                     is_setup = excluded.is_setup,
                     khatma_number = excluded.khatma_number,
                     chat_type = excluded.chat_type,
-                    send_images = excluded.send_images""",
+                    send_images = excluded.send_images,
+                    khatma_unread = excluded.khatma_unread""",
                 (
                     user["user_id"],
                     user.get("username"),
@@ -285,6 +320,7 @@ class DBManager:
                     user.get("khatma_number", 0),
                     user.get("chat_type", "private"),
                     user.get("send_images", 1),
+                    user.get("khatma_unread", 0),
                 ),
             )
             count += 1
