@@ -81,6 +81,11 @@ BTN_ADMIN_DB = "💾 سحب قاعدة البيانات"
 BTN_TEST_SEND = "🧪 معاينة الورد"
 BTN_CALIBRATE = "⚙️ معايرة"
 BTN_SEND_TYPE = "🖼 نوع الإرسال"
+BTN_ADMIN_SET_KHATMA = "🔢 ضبط ختمة مستخدم"
+BTN_ADMIN_EXPORT_JSON = "📤 تصدير JSON"
+BTN_ADMIN_IMPORT_JSON = "📥 استيراد JSON"
+BTN_ADMIN_ADD_DUA = "➕ إضافة دعاء"
+BTN_ADMIN_UNREAD_STATS = "📈 إحصائيات غير مقروءة"
 
 BUTTON_ALIASES = {
     BTN_SEND_NOW: "send_now",
@@ -119,6 +124,16 @@ BUTTON_ALIASES = {
     "⚙️ Calibration": "calibrate",
     BTN_SEND_TYPE: "send_type",
     "🖼 Send Type": "send_type",
+    BTN_ADMIN_SET_KHATMA: "admin_set_khatma",
+    "🔢 Set User Khatma": "admin_set_khatma",
+    BTN_ADMIN_EXPORT_JSON: "admin_export_json",
+    "📤 Export JSON": "admin_export_json",
+    BTN_ADMIN_IMPORT_JSON: "admin_import_json",
+    "📥 Import JSON": "admin_import_json",
+    BTN_ADMIN_ADD_DUA: "admin_add_dua",
+    "➕ Add Dua": "admin_add_dua",
+    BTN_ADMIN_UNREAD_STATS: "admin_unread_stats",
+    "📈 Unread Stats": "admin_unread_stats",
 }
 
 PENDING_ACTIONS: dict[int, tuple[str, int]] = {}
@@ -146,6 +161,11 @@ TEXTS = {
         "test_send": BTN_TEST_SEND,
         "calibrate": BTN_CALIBRATE,
         "send_type": BTN_SEND_TYPE,
+        "admin_set_khatma": BTN_ADMIN_SET_KHATMA,
+        "admin_export_json": BTN_ADMIN_EXPORT_JSON,
+        "admin_import_json": BTN_ADMIN_IMPORT_JSON,
+        "admin_add_dua": BTN_ADMIN_ADD_DUA,
+        "admin_unread_stats": BTN_ADMIN_UNREAD_STATS,
         "preview_label": "🧪 معاينة",
         "text_only_note": "\n📝 وضع النص فقط",
     },
@@ -171,6 +191,11 @@ TEXTS = {
         "test_send": "🧪 Preview Wird",
         "calibrate": "⚙️ Calibration",
         "send_type": "🖼 Send Type",
+        "admin_set_khatma": "🔢 Set User Khatma",
+        "admin_export_json": "📤 Export JSON",
+        "admin_import_json": "📥 Import JSON",
+        "admin_add_dua": "➕ Add Dua",
+        "admin_unread_stats": "📈 Unread Stats",
         "preview_label": "🧪 Preview",
         "text_only_note": "\n📝 Text only mode",
     },
@@ -199,6 +224,11 @@ ALL_BUTTON_TEXTS = [
     BTN_TEST_SEND, "🧪 Preview Wird",
     BTN_CALIBRATE, "⚙️ Calibration",
     BTN_SEND_TYPE, "🖼 Send Type",
+    BTN_ADMIN_SET_KHATMA, "🔢 Set User Khatma",
+    BTN_ADMIN_EXPORT_JSON, "📤 Export JSON",
+    BTN_ADMIN_IMPORT_JSON, "📥 Import JSON",
+    BTN_ADMIN_ADD_DUA, "➕ Add Dua",
+    BTN_ADMIN_UNREAD_STATS, "📈 Unread Stats",
 ]
 
 
@@ -240,6 +270,17 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
         rows.append([
             types.KeyboardButton(text=get_text(language, "admin_send_dua")),
             types.KeyboardButton(text=get_text(language, "admin_db")),
+        ])
+        rows.append([
+            types.KeyboardButton(text=get_text(language, "admin_export_json")),
+            types.KeyboardButton(text=get_text(language, "admin_import_json")),
+        ])
+        rows.append([
+            types.KeyboardButton(text=get_text(language, "admin_add_dua")),
+            types.KeyboardButton(text=get_text(language, "admin_set_khatma")),
+        ])
+        rows.append([
+            types.KeyboardButton(text=get_text(language, "admin_unread_stats")),
         ])
     return types.ReplyKeyboardMarkup(
         keyboard=rows,
@@ -1442,6 +1483,23 @@ async def handle_pending_input(message: types.Message):
         await cleanup_group_messages(message, resp)
         return
 
+    if action == "add_dua":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
+        if not text:
+            PENDING_ACTIONS[subscription_id] = ("add_dua", original_user_id)
+            await message.answer("✏️ أرسل نص الدعاء:")
+            return
+        duas = load_duas()
+        duas.append(text)
+        save_duas(duas)
+        await message.answer(
+            "✅ تم إضافة الدعاء الجديد بنجاح.",
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
+        )
+        return
+
     if action == "set_khatma":
         if not is_admin(message):
             PENDING_ACTIONS.pop(subscription_id, None)
@@ -1653,6 +1711,44 @@ async def admin_db_button(message: types.Message):
     if not is_admin(message):
         return
     await download_db_command(message)
+
+
+@dp.message(F.text.in_([BTN_ADMIN_EXPORT_JSON, "📤 Export JSON"]))
+async def admin_export_json_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await export_json_command(message)
+
+
+@dp.message(F.text.in_([BTN_ADMIN_IMPORT_JSON, "📥 Import JSON"]))
+async def admin_import_json_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[message.chat.id] = ("import_json", message.from_user.id)
+    await message.answer("📤 أرسل ملف JSON لاستيراد البيانات.")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_ADD_DUA, "➕ Add Dua"]))
+async def admin_add_dua_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = ("add_dua", message.from_user.id)
+    await message.answer("✏️ أرسل نص الدعاء الذي تريد إضافته:")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set User Khatma"]))
+async def admin_set_khatma_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = ("set_khatma", message.from_user.id)
+    await message.answer("🔢 أرسل رقم_المستخدم ورقم_الختمة:\nمثال: 123456 20")
+
+
+@dp.message(F.text.in_([BTN_ADMIN_UNREAD_STATS, "📈 Unread Stats"]))
+async def admin_unread_stats_button(message: types.Message):
+    if not is_admin(message):
+        return
+    await unread_stats(message)
 
 
 @dp.message(F.text, F.chat.type == "private")
