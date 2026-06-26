@@ -1572,7 +1572,7 @@ async def import_json_command(message: types.Message):
     await message.answer("📤 أرسل ملف JSON لاستيراد البيانات.")
 
 
-@dp.document(F.from_user.id == ADMIN_ID)
+@dp.message(F.document, F.from_user.id == ADMIN_ID)
 async def handle_import_json_doc(message: types.Message):
     entry = PENDING_ACTIONS.pop(message.chat.id, None)
     if entry is None or entry[0] != "import_json":
