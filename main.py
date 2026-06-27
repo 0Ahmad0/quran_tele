@@ -87,6 +87,7 @@ BTN_ADMIN_EXPORT_JSON = "📤 تصدير JSON"
 BTN_ADMIN_IMPORT_JSON = "📥 استيراد JSON"
 BTN_ADMIN_CONTENT_MGMT = "📋 إدارة المحتوى"
 BTN_ADMIN_UNREAD_STATS = "📈 إحصائيات غير مقروءة"
+BTN_ADMIN_SET_COMPLETED_KHATMAS = "✅ ضبط الختمات المقروءة"
 
 BUTTON_ALIASES = {
     BTN_SEND_NOW: "send_now",
@@ -135,6 +136,8 @@ BUTTON_ALIASES = {
     "📋 Manage Content": "admin_content_mgmt",
     BTN_ADMIN_UNREAD_STATS: "admin_unread_stats",
     "📈 Unread Stats": "admin_unread_stats",
+    BTN_ADMIN_SET_COMPLETED_KHATMAS: "admin_set_completed_khatmas",
+    "✅ Set Completed Khatmas": "admin_set_completed_khatmas",
 }
 
 PENDING_ACTIONS: dict[int, tuple[str, int]] = {}
@@ -167,6 +170,7 @@ TEXTS = {
         "admin_import_json": BTN_ADMIN_IMPORT_JSON,
         "admin_content_mgmt": BTN_ADMIN_CONTENT_MGMT,
         "admin_unread_stats": BTN_ADMIN_UNREAD_STATS,
+        "admin_set_completed_khatmas": BTN_ADMIN_SET_COMPLETED_KHATMAS,
         "preview_label": "🧪 معاينة",
         "text_only_note": "\n📝 وضع النص فقط",
     },
@@ -197,6 +201,7 @@ TEXTS = {
         "admin_import_json": "📥 Import JSON",
         "admin_content_mgmt": "📋 Manage Content",
         "admin_unread_stats": "📈 Unread Stats",
+        "admin_set_completed_khatmas": "✅ Set Completed Khatmas",
         "preview_label": "🧪 Preview",
         "text_only_note": "\n📝 Text only mode",
     },
@@ -230,6 +235,7 @@ ALL_BUTTON_TEXTS = [
     BTN_ADMIN_IMPORT_JSON, "📥 Import JSON",
     BTN_ADMIN_CONTENT_MGMT, "📋 Manage Content",
     BTN_ADMIN_UNREAD_STATS, "📈 Unread Stats",
+    BTN_ADMIN_SET_COMPLETED_KHATMAS, "✅ Set Completed Khatmas",
 ]
 
 
@@ -282,6 +288,7 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
         ])
         rows.append([
             types.KeyboardButton(text=get_text(language, "admin_unread_stats")),
+            types.KeyboardButton(text=get_text(language, "admin_set_completed_khatmas")),
         ])
     return types.ReplyKeyboardMarkup(
         keyboard=rows,
@@ -1608,6 +1615,37 @@ async def handle_pending_input(message: types.Message):
         await cleanup_group_messages(message, resp)
         return
 
+    if action == "admin_set_completed_khatmas":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
+        parts = text.split()
+        if len(parts) != 2:
+            PENDING_ACTIONS[subscription_id] = ("admin_set_completed_khatmas", original_user_id)
+            resp = await message.answer("الصيغة غير صحيحة. أرسل: رقم_المستخدم عدد_الختمات_المقروءة\nمثال: 123456 10")
+            await cleanup_group_messages(message, resp)
+            return
+        try:
+            user_id = int(parts[0])
+            count = int(parts[1])
+        except ValueError:
+            PENDING_ACTIONS[subscription_id] = ("admin_set_completed_khatmas", original_user_id)
+            resp = await message.answer("يجب أن يكونا أرقامًا صحيحة. مثال: 123456 10")
+            await cleanup_group_messages(message, resp)
+            return
+        user = db.get_user(user_id)
+        if not user:
+            resp = await message.answer("المستخدم غير موجود.")
+            await cleanup_group_messages(message, resp)
+            return
+        db.update_settings(user_id, completed_khatmas=count)
+        resp = await message.answer(
+            f"✅ تم ضبط عدد الختمات المقروءة للمستخدم {user_id} على {count}",
+            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
+        )
+        await cleanup_group_messages(message, resp)
+        return
+
 
 def get_subscription_id_no_ensure(message: types.Message) -> int:
     return message.chat.id
@@ -1693,6 +1731,29 @@ async def set_khatma_count(message: types.Message):
 
     db.update_settings(user_id, khatma_number=khatma_number)
     await message.answer(f"✅ تم ضبط رقم الختمة للمستخدم {user_id} على {khatma_number}")
+
+
+@dp.message(Command("set_completed_khatmas"), F.from_user.id == ADMIN_ID)
+async def set_completed_khatmas(message: types.Message):
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await message.answer("اكتب الأمر هكذا: /set_completed_khatmas <user_id> <count>\nمثال: /set_completed_khatmas 123456 10")
+        return
+
+    try:
+        user_id = int(parts[1])
+        count = int(parts[2])
+    except ValueError:
+        await message.answer("رقم المستخدم والعدد يجب أن يكونا أرقامًا صحيحة.")
+        return
+
+    user = db.get_user(user_id)
+    if not user:
+        await message.answer("المستخدم غير موجود.")
+        return
+
+    db.update_settings(user_id, completed_khatmas=count)
+    await message.answer(f"✅ تم ضبط عدد الختمات المقروءة للمستخدم {user_id} على {count}")
 
 
 @dp.message(F.text.in_([BTN_ADMIN_STATS, "📊 Statistics"]))
@@ -1946,6 +2007,14 @@ async def admin_unread_stats_button(message: types.Message):
     if not is_admin(message):
         return
     await unread_stats(message)
+
+
+@dp.message(F.text.in_([BTN_ADMIN_SET_COMPLETED_KHATMAS, "✅ Set Completed Khatmas"]))
+async def admin_set_completed_khatmas_button(message: types.Message):
+    if not is_admin(message):
+        return
+    PENDING_ACTIONS[get_subscription_id(message)] = ("admin_set_completed_khatmas", message.from_user.id)
+    await message.answer("✅ أرسل رقم_المستخدم وعدد_الختمات_المقروءة:\nمثال: 123456 10")
 
 
 @dp.message(F.text, F.chat.type == "private")
