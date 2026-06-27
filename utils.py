@@ -138,31 +138,30 @@ def build_wird_caption(
     end_page: int,
     now: datetime,
     language: str = "ar",
+    khatma_number: int = 0,
     completed_khatmas: int = 0,
 ) -> str:
     juz = get_juz_number(start_page)
     if language == "en":
-        text = (
+        return (
             "Peace be upon you 🌿\n\n"
             f"🗓 {format_hijri_date(now)}\n"
             f"📅 {format_gregorian_date(now)}\n\n"
             f"📚 Juz {juz}\n"
-            f"📄 Pages: {start_page} to {end_page}"
+            f"📄 Pages: {start_page} to {end_page}\n\n"
+            f"📖 Khatmas: {khatma_number}\n"
+            f"✅ Completed khatmas: {completed_khatmas}"
         )
-        if completed_khatmas > 0:
-            text += f"\n✅ Completed khatmas: {completed_khatmas}"
-        return text
 
-    text = (
+    return (
         "السلام عليكم ورحمة الله وبركاته\n\n"
         f"🗓 {format_hijri_date(now)}\n"
         f"📅 الموافق لـ {format_gregorian_date(now)}\n\n"
         f"📚 الجزء {juz}\n"
-        f"📄 الصفحات: من {start_page} إلى {end_page}"
+        f"📄 الصفحات: من {start_page} إلى {end_page}\n\n"
+        f"📖 عدد الختمات: {khatma_number}\n"
+        f"✅ عدد الختمات المقروءة: {completed_khatmas}"
     )
-    if completed_khatmas > 0:
-        text += f"\n✅ عدد الختمات المقروءة: {completed_khatmas}"
-    return text
 
 
 def get_pages_logic(current_page: int, daily_goal: int) -> tuple[list[int], bool]:

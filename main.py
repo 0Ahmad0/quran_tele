@@ -495,12 +495,14 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: 
         pages, is_finish = get_pages_logic(current_page, goal)
         language = get_subscription_language(user_id)
         user_data = db.get_user(user_id)
+        khatma_number = user_data.get("khatma_number", 0) if user_data else 0
         completed_khatmas_count = user_data.get("completed_khatmas", 0) if user_data else 0
         caption = build_wird_caption(
             start_page=pages[0],
             end_page=pages[-1],
             now=datetime.now(scheduler.timezone),
             language=language,
+            khatma_number=khatma_number,
             completed_khatmas=completed_khatmas_count,
         )
         if preview:
@@ -1764,20 +1766,43 @@ async def import_json_command(message: types.Message):
 
 
 @dp.message(F.document, F.from_user.id == ADMIN_ID)
-async def handle_import_json_doc(message: types.Message):
+async def handle_admin_document(message: types.Message):
     entry = PENDING_ACTIONS.pop(message.chat.id, None)
-    if entry is None or entry[0] != "import_json":
+    if entry is None:
         return
-    try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-            await bot.download(message.document, destination=tmp.name)
-            json_data = Path(tmp.name).read_text(encoding="utf-8")
-        Path(tmp.name).unlink(missing_ok=True)
-        count = db.import_json(json_data)
-        await message.answer(f"✅ تم استيراد بيانات {count} مستخدم بنجاح.")
-    except Exception as e:
-        await message.answer(f"❌ فشل استيراد الملف: {e}")
+    action = entry[0]
+    if action == "import_json":
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+                await bot.download(message.document, destination=tmp.name)
+                json_data = Path(tmp.name).read_text(encoding="utf-8")
+            Path(tmp.name).unlink(missing_ok=True)
+            count = db.import_json(json_data)
+            await message.answer(f"✅ تم استيراد بيانات {count} مستخدم بنجاح.")
+        except Exception as e:
+            await message.answer(f"❌ فشل استيراد الملف: {e}")
+    elif action == "content_import":
+        try:
+            import tempfile
+            import json as json_mod
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+                await bot.download(message.document, destination=tmp.name)
+                json_data = Path(tmp.name).read_text(encoding="utf-8")
+            Path(tmp.name).unlink(missing_ok=True)
+            items = json_mod.loads(json_data)
+            if not isinstance(items, list):
+                await message.answer("❌ الملف يجب أن يحتوي على مصفوفة JSON (قائمة من النصوص).")
+                return
+            if not items:
+                await message.answer("❌ الملف لا يحتوي على أي محتوى.")
+                return
+            duas = load_duas()
+            duas.extend(items)
+            save_duas(duas)
+            await message.answer(f"✅ تم استيراد {len(items)} محتوى جديد بنجاح. الإجمالي الآن: {len(duas)}")
+        except Exception as e:
+            await message.answer(f"❌ فشل استيراد الملف: {e}")
 
 
 @dp.callback_query(F.data.startswith("content:"), F.from_user.id == ADMIN_ID)
@@ -1811,6 +1836,35 @@ async def content_mgmt_callback(callback: types.CallbackQuery):
             f"🗑 أرسل رقم المحتوى الذي تريد حذفه:\n\n"
             f"📋 المحتوى الحالي ({total}):\n" +
             "\n".join(f"{i}. {item[:60]}{'...' if len(item) > 60 else ''}" for i, item in enumerate(content_list, 1))
+        )
+    elif action == "delete_all":
+        if total == 0:
+            await callback.answer("⚠️ لا يوجد محتوى للحذف.", show_alert=True)
+            return
+        confirm_keyboard = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    types.InlineKeyboardButton(text="✅ نعم، احذف الكل", callback_data="content:delete_all_confirm"),
+                    types.InlineKeyboardButton(text="❌ إلغاء", callback_data="content:cancel"),
+                ]
+            ]
+        )
+        await callback.message.edit_text(
+            f"⚠️ هل أنت متأكد من حذف جميع المحتوى ({total})؟\n\n"
+            "هذا الإجراء لا يمكن التراجع عنه.",
+            reply_markup=confirm_keyboard,
+        )
+    elif action == "delete_all_confirm":
+        save_duas([])
+        await callback.message.edit_text("✅ تم حذف جميع المحتوى بنجاح.")
+    elif action == "cancel":
+        await callback.message.edit_text("✅ تم إلغاء العملية.")
+    elif action == "import":
+        PENDING_ACTIONS[callback.message.chat.id] = ("content_import", callback.from_user.id)
+        await callback.message.edit_text(
+            "📥 أرسل ملف JSON يحتوي على مصفوفة من النصوص.\n\n"
+            "مثال:\n"
+            '["نص أول", "نص ثاني", "نص ثالث"]'
         )
     await callback.answer()
 
@@ -1869,7 +1923,11 @@ async def admin_content_mgmt_button(message: types.Message):
                 types.InlineKeyboardButton(text="➕ إضافة", callback_data="content:add"),
                 types.InlineKeyboardButton(text="✏️ تعديل", callback_data="content:edit"),
                 types.InlineKeyboardButton(text="🗑 حذف", callback_data="content:delete"),
-            ]
+            ],
+            [
+                types.InlineKeyboardButton(text="🗑 حذف الكل", callback_data="content:delete_all"),
+                types.InlineKeyboardButton(text="📥 استيراد JSON", callback_data="content:import"),
+            ],
         ]
     )
     await message.answer("\n".join(lines), reply_markup=keyboard)
