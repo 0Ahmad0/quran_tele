@@ -4,6 +4,7 @@ import asyncio
 import gc
 import logging
 import os
+import random
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -84,7 +85,7 @@ BTN_SEND_TYPE = "🖼 نوع الإرسال"
 BTN_ADMIN_SET_KHATMA = "🔢 ضبط ختمة مستخدم"
 BTN_ADMIN_EXPORT_JSON = "📤 تصدير JSON"
 BTN_ADMIN_IMPORT_JSON = "📥 استيراد JSON"
-BTN_ADMIN_ADD_DUA = "➕ إضافة دعاء"
+BTN_ADMIN_CONTENT_MGMT = "📋 إدارة المحتوى"
 BTN_ADMIN_UNREAD_STATS = "📈 إحصائيات غير مقروءة"
 
 BUTTON_ALIASES = {
@@ -130,8 +131,8 @@ BUTTON_ALIASES = {
     "📤 Export JSON": "admin_export_json",
     BTN_ADMIN_IMPORT_JSON: "admin_import_json",
     "📥 Import JSON": "admin_import_json",
-    BTN_ADMIN_ADD_DUA: "admin_add_dua",
-    "➕ Add Dua": "admin_add_dua",
+    BTN_ADMIN_CONTENT_MGMT: "admin_content_mgmt",
+    "📋 Manage Content": "admin_content_mgmt",
     BTN_ADMIN_UNREAD_STATS: "admin_unread_stats",
     "📈 Unread Stats": "admin_unread_stats",
 }
@@ -164,7 +165,7 @@ TEXTS = {
         "admin_set_khatma": BTN_ADMIN_SET_KHATMA,
         "admin_export_json": BTN_ADMIN_EXPORT_JSON,
         "admin_import_json": BTN_ADMIN_IMPORT_JSON,
-        "admin_add_dua": BTN_ADMIN_ADD_DUA,
+        "admin_content_mgmt": BTN_ADMIN_CONTENT_MGMT,
         "admin_unread_stats": BTN_ADMIN_UNREAD_STATS,
         "preview_label": "🧪 معاينة",
         "text_only_note": "\n📝 وضع النص فقط",
@@ -194,7 +195,7 @@ TEXTS = {
         "admin_set_khatma": "🔢 Set User Khatma",
         "admin_export_json": "📤 Export JSON",
         "admin_import_json": "📥 Import JSON",
-        "admin_add_dua": "➕ Add Dua",
+        "admin_content_mgmt": "📋 Manage Content",
         "admin_unread_stats": "📈 Unread Stats",
         "preview_label": "🧪 Preview",
         "text_only_note": "\n📝 Text only mode",
@@ -227,7 +228,7 @@ ALL_BUTTON_TEXTS = [
     BTN_ADMIN_SET_KHATMA, "🔢 Set User Khatma",
     BTN_ADMIN_EXPORT_JSON, "📤 Export JSON",
     BTN_ADMIN_IMPORT_JSON, "📥 Import JSON",
-    BTN_ADMIN_ADD_DUA, "➕ Add Dua",
+    BTN_ADMIN_CONTENT_MGMT, "📋 Manage Content",
     BTN_ADMIN_UNREAD_STATS, "📈 Unread Stats",
 ]
 
@@ -272,12 +273,12 @@ def main_keyboard(language: str = "ar", is_admin_user: bool = False, is_group: b
             types.KeyboardButton(text=get_text(language, "admin_db")),
         ])
         rows.append([
-            types.KeyboardButton(text=get_text(language, "admin_export_json")),
-            types.KeyboardButton(text=get_text(language, "admin_import_json")),
+            types.KeyboardButton(text=get_text(language, "admin_content_mgmt")),
+            types.KeyboardButton(text=get_text(language, "admin_set_khatma")),
         ])
         rows.append([
-            types.KeyboardButton(text=get_text(language, "admin_add_dua")),
-            types.KeyboardButton(text=get_text(language, "admin_set_khatma")),
+            types.KeyboardButton(text=get_text(language, "admin_export_json")),
+            types.KeyboardButton(text=get_text(language, "admin_import_json")),
         ])
         rows.append([
             types.KeyboardButton(text=get_text(language, "admin_unread_stats")),
@@ -493,11 +494,14 @@ async def send_daily_quran(user_id: int, goal: int, current_page: int, preview: 
     async with _send_sem:
         pages, is_finish = get_pages_logic(current_page, goal)
         language = get_subscription_language(user_id)
+        user_data = db.get_user(user_id)
+        completed_khatmas_count = user_data.get("completed_khatmas", 0) if user_data else 0
         caption = build_wird_caption(
             start_page=pages[0],
             end_page=pages[-1],
             now=datetime.now(scheduler.timezone),
             language=language,
+            completed_khatmas=completed_khatmas_count,
         )
         if preview:
             if language == "en":
@@ -650,22 +654,31 @@ async def check_due_daily_quran() -> None:
         gc.collect()
 
 
-async def send_dua_to_all() -> None:
-    dua = get_random_dua()
+async def send_dua_to_all(custom_dua: str | None = None) -> int:
+    if custom_dua:
+        dua = custom_dua
+    else:
+        duas = load_duas()
+        if not duas:
+            return 0
+        dua = random.choice(duas)
     users = db.get_all_active_users(private_only=True)
     if not users:
-        return
+        return 0
 
     logger.info("Sending dua to %s active users (private only)", len(users))
+    sent_count = 0
     for user in users:
         try:
             await bot.send_message(user["user_id"], f"🤲 دعاء مأثور\n\n{dua}")
+            sent_count += 1
         except TelegramForbiddenError:
             db.update_settings(user["user_id"], is_active=False)
         except Exception:
             logger.exception("Failed to send dua to user %s", user["user_id"])
         await asyncio.sleep(0.3)
         gc.collect()
+    return sent_count
 
 
 NOT_ADMIN_GROUP_MESSAGE = (
@@ -1483,20 +1496,82 @@ async def handle_pending_input(message: types.Message):
         await cleanup_group_messages(message, resp)
         return
 
-    if action == "add_dua":
+    if action == "content_add":
         if not is_admin(message):
             PENDING_ACTIONS.pop(subscription_id, None)
             return
         if not text:
-            PENDING_ACTIONS[subscription_id] = ("add_dua", original_user_id)
-            await message.answer("✏️ أرسل نص الدعاء:")
+            PENDING_ACTIONS[subscription_id] = ("content_add", original_user_id)
+            await message.answer("✏️ أرسل نص المحتوى الجديد (دعاء، مقولة، تذكير، ...):")
             return
-        duas = load_duas()
-        duas.append(text)
-        save_duas(duas)
+        content_list = load_duas()
+        content_list.append(text)
+        save_duas(content_list)
+        lang = get_subscription_language(subscription_id)
         await message.answer(
-            "✅ تم إضافة الدعاء الجديد بنجاح.",
-            reply_markup=main_keyboard(get_subscription_language(subscription_id), admin, is_group),
+            "✅ تم إضافة المحتوى الجديد بنجاح.",
+            reply_markup=main_keyboard(lang, admin, is_group),
+        )
+        return
+
+    if action == "content_delete":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
+        try:
+            idx = int(normalize_digits(text.strip()))
+        except ValueError:
+            PENDING_ACTIONS[subscription_id] = ("content_delete", original_user_id)
+            await message.answer("❌ الرقم غير صحيح. أرسل رقم المحتوى الذي تريد حذفه:")
+            return
+        content_list = load_duas()
+        if idx < 1 or idx > len(content_list):
+            PENDING_ACTIONS[subscription_id] = ("content_delete", original_user_id)
+            await message.answer(f"❌ الرقم خارج النطاق. أرسل رقمًا بين 1 و {len(content_list)}:")
+            return
+        deleted = content_list.pop(idx - 1)
+        save_duas(content_list)
+        lang = get_subscription_language(subscription_id)
+        await message.answer(
+            f"✅ تم حذف المحتوى رقم {idx}:\n\n{deleted}",
+            reply_markup=main_keyboard(lang, admin, is_group),
+        )
+        return
+
+    if action == "content_edit":
+        if not is_admin(message):
+            PENDING_ACTIONS.pop(subscription_id, None)
+            return
+        if "|" not in text:
+            PENDING_ACTIONS[subscription_id] = ("content_edit", original_user_id)
+            await message.answer("❌ أرسل رقم المحتوى والنص الجديد مفصولين بـ |\nمثال: 5|اللهم اجعل القرآن ربيع قلوبنا")
+            return
+        parts = text.split("|", 1)
+        try:
+            idx = int(normalize_digits(parts[0].strip()))
+        except ValueError:
+            PENDING_ACTIONS[subscription_id] = ("content_edit", original_user_id)
+            await message.answer("❌ الرقم غير صحيح. أرسل رقم المحتوى والنص الجديد مفصولين بـ |\nمثال: 5|اللهم اجعل القرآن ربيع قلوبنا")
+            return
+        new_text = parts[1].strip()
+        if not new_text:
+            PENDING_ACTIONS[subscription_id] = ("content_edit", original_user_id)
+            await message.answer("❌ النص الجديد فارغ. أرسل رقم المحتوى والنص الجديد مفصولين بـ |")
+            return
+        content_list = load_duas()
+        if idx < 1 or idx > len(content_list):
+            PENDING_ACTIONS[subscription_id] = ("content_edit", original_user_id)
+            await message.answer(f"❌ الرقم خارج النطاق. أرسل رقمًا بين 1 و {len(content_list)}:")
+            return
+        old_text = content_list[idx - 1]
+        content_list[idx - 1] = new_text
+        save_duas(content_list)
+        lang = get_subscription_language(subscription_id)
+        await message.answer(
+            f"✅ تم تعديل المحتوى رقم {idx}\n\n"
+            f"قديم: {old_text[:100]}{'...' if len(old_text) > 100 else ''}\n"
+            f"جديد: {new_text[:100]}{'...' if len(new_text) > 100 else ''}",
+            reply_markup=main_keyboard(lang, admin, is_group),
         )
         return
 
@@ -1588,8 +1663,11 @@ async def broadcast(message: types.Message):
 
 @dp.message(Command("admin_send_dua"), F.from_user.id == ADMIN_ID)
 async def admin_send_dua(message: types.Message):
-    await send_dua_to_all()
-    await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
+    sent = await send_dua_to_all()
+    if sent > 0:
+        await message.answer(f"✅ تم إرسال دعاء إلى {sent} مشترك.")
+    else:
+        await message.answer("⚠️ لا يوجد مشتركين نشطين أو لا توجد أدعية في القائمة.")
 
 
 @dp.message(Command("set_khatma_count"), F.from_user.id == ADMIN_ID)
@@ -1642,8 +1720,16 @@ async def admin_broadcast_button(message: types.Message):
 async def admin_send_dua_button(message: types.Message):
     if not is_admin(message):
         return
-    await send_dua_to_all()
-    await message.answer("✅ تم إرسال دعاء للمشتركين النشطين.")
+    status_msg = await message.answer("🔄 جاري إرسال الدعاء للمشتركين...")
+    sent = await send_dua_to_all()
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+    if sent > 0:
+        await message.answer(f"✅ تم إرسال دعاء إلى {sent} مشترك.")
+    else:
+        await message.answer("⚠️ لا يوجد مشتركين نشطين أو لا توجد أدعية في القائمة.")
 
 
 @dp.message(Command("download_db"), F.from_user.id == ADMIN_ID)
@@ -1694,6 +1780,41 @@ async def handle_import_json_doc(message: types.Message):
         await message.answer(f"❌ فشل استيراد الملف: {e}")
 
 
+@dp.callback_query(F.data.startswith("content:"), F.from_user.id == ADMIN_ID)
+async def content_mgmt_callback(callback: types.CallbackQuery):
+    action = callback.data.split(":", 1)[1]
+    content_list = load_duas()
+    total = len(content_list)
+    if action == "add":
+        PENDING_ACTIONS[callback.message.chat.id] = ("content_add", callback.from_user.id)
+        await callback.message.edit_text(
+            "✏️ أرسل نص المحتوى الجديد (دعاء، مقولة، تذكير، ...):\n\n"
+            "💡 يمكنك إرسال أي نص تريده ليظهر عشوائيًا عند طلب ذكر/دعاء."
+        )
+    elif action == "edit":
+        if total == 0:
+            await callback.answer("⚠️ لا يوجد محتوى للتعديل.", show_alert=True)
+            return
+        PENDING_ACTIONS[callback.message.chat.id] = ("content_edit", callback.from_user.id)
+        await callback.message.edit_text(
+            f"✏️ أرسل رقم المحتوى والنص الجديد مفصولين بـ |\n\n"
+            f"مثال: 5|اللهم اجعل القرآن ربيع قلوبنا\n\n"
+            f"📋 المحتوى الحالي ({total}):\n" +
+            "\n".join(f"{i}. {item[:60]}{'...' if len(item) > 60 else ''}" for i, item in enumerate(content_list, 1))
+        )
+    elif action == "delete":
+        if total == 0:
+            await callback.answer("⚠️ لا يوجد محتوى للحذف.", show_alert=True)
+            return
+        PENDING_ACTIONS[callback.message.chat.id] = ("content_delete", callback.from_user.id)
+        await callback.message.edit_text(
+            f"🗑 أرسل رقم المحتوى الذي تريد حذفه:\n\n"
+            f"📋 المحتوى الحالي ({total}):\n" +
+            "\n".join(f"{i}. {item[:60]}{'...' if len(item) > 60 else ''}" for i, item in enumerate(content_list, 1))
+        )
+    await callback.answer()
+
+
 @dp.message(Command("add_dua"), F.from_user.id == ADMIN_ID)
 async def add_dua_command(message: types.Message):
     dua_text = message.text.replace("/add_dua", "", 1).strip()
@@ -1728,12 +1849,30 @@ async def admin_import_json_button(message: types.Message):
     await message.answer("📤 أرسل ملف JSON لاستيراد البيانات.")
 
 
-@dp.message(F.text.in_([BTN_ADMIN_ADD_DUA, "➕ Add Dua"]))
-async def admin_add_dua_button(message: types.Message):
+@dp.message(F.text.in_([BTN_ADMIN_CONTENT_MGMT, "📋 Manage Content"]))
+async def admin_content_mgmt_button(message: types.Message):
     if not is_admin(message):
         return
-    PENDING_ACTIONS[get_subscription_id(message)] = ("add_dua", message.from_user.id)
-    await message.answer("✏️ أرسل نص الدعاء الذي تريد إضافته:")
+    content_list = load_duas()
+    total = len(content_list)
+    lines = [f"📋 قائمة المحتوى (الإجمالي: {total})"]
+    if total == 0:
+        lines.append("\n⚠️ لا يوجد محتوى بعد.")
+    else:
+        lines.append("")
+        for i, item in enumerate(content_list, 1):
+            short = item[:80] + "..." if len(item) > 80 else item
+            lines.append(f"{i}. {short}")
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="➕ إضافة", callback_data="content:add"),
+                types.InlineKeyboardButton(text="✏️ تعديل", callback_data="content:edit"),
+                types.InlineKeyboardButton(text="🗑 حذف", callback_data="content:delete"),
+            ]
+        ]
+    )
+    await message.answer("\n".join(lines), reply_markup=keyboard)
 
 
 @dp.message(F.text.in_([BTN_ADMIN_SET_KHATMA, "🔢 Set User Khatma"]))
